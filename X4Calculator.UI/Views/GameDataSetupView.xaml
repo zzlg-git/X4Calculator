@@ -1,0 +1,341 @@
+<UserControl x:Class="X4Calculator.UI.Views.GameDataSetupView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:viewModels="clr-namespace:X4Calculator.UI.ViewModels"
+             mc:Ignorable="d"
+             d:DesignWidth="1100"
+             d:DesignHeight="600"
+             AutomationProperties.AutomationId="game-data.setup">
+    <UserControl.Resources>
+        <Style x:Key="DiscoveringState" TargetType="Grid">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static viewModels:GameDataSetupState.DiscoveringInstall}">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="InstallNotFoundState" TargetType="Grid">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static viewModels:GameDataSetupState.InstallNotFound}">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="AnalyzingState" TargetType="Grid">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static viewModels:GameDataSetupState.AnalyzingContent}">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="EntryState" TargetType="Grid">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static viewModels:GameDataSetupState.Entry}">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ReviewingState" TargetType="Grid">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static viewModels:GameDataSetupState.Reviewing}">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ExtractingState" TargetType="Grid">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static viewModels:GameDataSetupState.Extracting}">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="FailedState" TargetType="Grid">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static viewModels:GameDataSetupState.Failed}">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="CompletedState" TargetType="Grid">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding State}" Value="{x:Static viewModels:GameDataSetupState.Completed}">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Background="{StaticResource BgSurfaceBrush}" CornerRadius="8" Padding="24">
+        <Grid>
+            <Grid Style="{StaticResource DiscoveringState}">
+                <StackPanel Width="560" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="正在查找 X4: Foundations"
+                               FontSize="27" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               TextAlignment="Center"/>
+                    <ProgressBar Height="7" Margin="0 26 0 0" IsIndeterminate="True"/>
+                    <TextBlock Text="{Binding StatusMessage}" Margin="0 20 0 0"
+                               FontSize="16" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextAlignment="Center" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="game-data.discovery-status"/>
+                </StackPanel>
+            </Grid>
+
+            <Grid Style="{StaticResource InstallNotFoundState}">
+                <StackPanel Width="620" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="未找到 X4 游戏目录"
+                               FontSize="27" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               TextAlignment="Center"/>
+                    <TextBlock Text="没有在常用安装位置检测到 X4: Foundations。请选择包含游戏 CAT/DAT 文件的安装目录。"
+                               Margin="0 18 0 0" FontSize="16"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               TextAlignment="Center" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="game-data.discovery-status"/>
+                    <Button Content="选择 X4 游戏目录" Command="{Binding BrowseCommand}"
+                            Margin="0 28 0 0" Padding="22 9"
+                            HorizontalAlignment="Center" Style="{StaticResource ActionButton}"
+                            AutomationProperties.AutomationId="game-data.browse"/>
+                </StackPanel>
+            </Grid>
+
+            <Grid Style="{StaticResource AnalyzingState}">
+                <StackPanel Width="560" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="正在分析导出内容" FontSize="27" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Center"/>
+                    <ProgressBar Height="7" Margin="0 26 0 0" IsIndeterminate="True"/>
+                    <TextBlock Text="正在读取 CAT 目录并生成待导出清单…" Margin="0 20 0 0"
+                               FontSize="16" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextAlignment="Center" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Grid>
+
+            <Grid Style="{StaticResource EntryState}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Border Padding="16 12" Background="{StaticResource BgMantleBrush}" CornerRadius="7">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="游戏目录" VerticalAlignment="Center" FontSize="14"
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding GameDirectory}" Margin="16 0"
+                                   VerticalAlignment="Center" FontSize="15"
+                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding GameDirectory}"
+                                   AutomationProperties.AutomationId="game-data.install-path"/>
+                        <Button Grid.Column="2" Content="更改" Command="{Binding BrowseCommand}"
+                                Style="{StaticResource ActionButton}"
+                                AutomationProperties.AutomationId="game-data.browse"/>
+                    </Grid>
+                </Border>
+
+                <StackPanel Grid.Row="1" Margin="0 20 0 22">
+                    <TextBlock Text="准备游戏数据" FontSize="24" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Center"/>
+                    <TextBlock Text="选择要导出的内容。下一步会列出将读取的原版、DLC 与 MOD，确认后才会开始解包。"
+                               Margin="0 8 0 0" FontSize="15"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               TextAlignment="Center" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding StatusMessage}" Margin="0 7 0 0" FontSize="14"
+                               Foreground="{StaticResource AccentBlueBrush}"
+                               TextAlignment="Center" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Command="{Binding ChooseVanillaCommand}"
+                            Style="{StaticResource CardButton}"
+                            AutomationProperties.AutomationId="game-data.vanilla">
+                        <StackPanel Margin="34" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock Text="原版游戏数据导出" FontSize="27" FontWeight="SemiBold"
+                                       TextAlignment="Center" TextWrapping="Wrap"/>
+                            <TextBlock Text="导出基础游戏和已安装的官方 DLC。适合原版游戏与不改变数据的 MOD。"
+                                       Margin="0 18 0 0" FontSize="16"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextAlignment="Center" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Column="2" Command="{Binding ChooseModsCommand}"
+                            Style="{StaticResource CardButton}"
+                            AutomationProperties.AutomationId="game-data.mods">
+                        <StackPanel Margin="34" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock Text="包含 MOD 的数据导出" FontSize="27" FontWeight="SemiBold"
+                                       TextAlignment="Center" TextWrapping="Wrap"/>
+                            <TextBlock Text="除基础游戏和官方 DLC 外，还导出检测到的 CAT/DAT 第三方扩展；当前版本暂不将 MOD 用于计算。"
+                                       Margin="0 18 0 0" FontSize="16"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextAlignment="Center" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Grid>
+
+            <Grid Style="{StaticResource ReviewingState}"
+                  AutomationProperties.AutomationId="game-data.review">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <StackPanel>
+                    <TextBlock Text="确认导出内容" FontSize="24" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <TextBlock Text="勾选要导出的内容；原版游戏为必需项。确认后仅解包当前勾选的 DLC/MOD。"
+                               Margin="0 7 0 0" FontSize="15"
+                               Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                    <Border Margin="0 12 0 0" Padding="12 8" CornerRadius="6"
+                            Background="{StaticResource Surface0Brush}">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ReviewIncludesMods}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="注意：MOD 本次仅导出保存，当前不会参与数据加载或任何计算。"
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentYellowBrush}" TextWrapping="Wrap"/>
+                    </Border>
+                </StackPanel>
+
+                <ScrollViewer Grid.Row="1" Margin="0 20 0 18"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              AutomationProperties.AutomationId="game-data.packages">
+                    <ItemsControl ItemsSource="{Binding ReviewPackages}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0 0 0 6" Padding="16 10"
+                                        Background="{StaticResource Surface0Brush}"
+                                        BorderBrush="{StaticResource Surface1Brush}"
+                                        BorderThickness="1" CornerRadius="7">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="2*"/>
+                                            <ColumnDefinition Width="2*"/>
+                                            <ColumnDefinition Width="Auto" MinWidth="120"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                  VerticalAlignment="Center" Margin="0 0 12 0"
+                                                  AutomationProperties.Name="{Binding DisplayName}"
+                                                  AutomationProperties.AutomationId="{Binding Id, StringFormat=game-data.package.{0}}">
+                                            <CheckBox.Style>
+                                                <Style TargetType="CheckBox" BasedOn="{StaticResource DarkCheckBox}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsRequired}" Value="True">
+                                                            <Setter Property="IsEnabled" Value="False"/>
+                                                            <Setter Property="ToolTip" Value="原版游戏数据为必需项"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </CheckBox.Style>
+                                        </CheckBox>
+                                        <TextBlock Grid.Column="1" Text="{Binding DisplayName}" FontSize="17" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Id}" Margin="18 0"
+                                                   FontSize="14" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Kind}" FontSize="14"
+                                                   Foreground="{StaticResource AccentBlueBrush}"
+                                                   VerticalAlignment="Center" TextAlignment="Right"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="1" Content="返回" Command="{Binding BackCommand}"
+                            Padding="20 7" Style="{StaticResource ActionButton}"
+                            AutomationProperties.AutomationId="game-data.back"/>
+                    <Button Grid.Column="3" Content="确认并开始解包" Command="{Binding ConfirmCommand}"
+                            Padding="20 7" Background="{StaticResource AccentBlueBrush}"
+                            Foreground="{StaticResource BgBaseBrush}"
+                            Style="{StaticResource ActionButton}"
+                            AutomationProperties.AutomationId="game-data.confirm"/>
+                </Grid>
+            </Grid>
+
+            <Grid Style="{StaticResource ExtractingState}">
+                <StackPanel Width="620" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="正在准备游戏数据" FontSize="27" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Center"/>
+                    <ProgressBar Height="10" Margin="0 28 0 0" Minimum="0" Maximum="100"
+                                 Value="{Binding ProgressPercent, Mode=OneWay}"
+                                 AutomationProperties.AutomationId="game-data.progress"/>
+                    <TextBlock Text="{Binding ProgressPercent, StringFormat={}{0:0}%}"
+                               Margin="0 9 0 0" FontSize="15"
+                               Foreground="{StaticResource AccentBlueBrush}" TextAlignment="Center"/>
+                    <TextBlock Text="{Binding StatusMessage}" Margin="0 18 0 0"
+                               FontSize="16" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextAlignment="Center" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="game-data.status"/>
+                    <Button Content="取消" Command="{Binding CancelCommand}" Margin="0 26 0 0"
+                            Padding="20 7" HorizontalAlignment="Center"
+                            Style="{StaticResource ActionButton}"
+                            AutomationProperties.AutomationId="game-data.cancel"/>
+                </StackPanel>
+            </Grid>
+
+            <Grid Style="{StaticResource FailedState}">
+                <StackPanel Width="620" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="游戏数据准备失败" FontSize="27" FontWeight="SemiBold"
+                               Foreground="{StaticResource AccentRedBrush}" TextAlignment="Center"/>
+                    <TextBlock Text="{Binding StatusMessage}" Margin="0 20 0 0"
+                               FontSize="16" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextAlignment="Center" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="game-data.status"/>
+                    <Button Content="重试" Command="{Binding RetryCommand}" Margin="0 28 0 0"
+                            Padding="22 8" HorizontalAlignment="Center"
+                            Style="{StaticResource ActionButton}"
+                            AutomationProperties.AutomationId="game-data.retry"/>
+                </StackPanel>
+            </Grid>
+
+            <Grid Style="{StaticResource CompletedState}">
+                <StackPanel Width="620" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="游戏数据已准备完成" FontSize="27" FontWeight="SemiBold"
+                               Foreground="{StaticResource AccentGreenBrush}" TextAlignment="Center"/>
+                    <TextBlock Text="{Binding StatusMessage}" Margin="0 20 0 0"
+                               FontSize="16" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextAlignment="Center" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="game-data.status"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

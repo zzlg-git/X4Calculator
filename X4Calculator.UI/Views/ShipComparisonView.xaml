@@ -1,0 +1,827 @@
+<UserControl x:Class="X4Calculator.UI.Views.ShipComparisonView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:models="clr-namespace:X4Calculator.Core.Models;assembly=X4Calculator.Core"
+             xmlns:viewmodels="clr-namespace:X4Calculator.UI.ViewModels"
+             xmlns:conv="clr-namespace:X4Calculator.UI.Converters"
+             xmlns:views="clr-namespace:X4Calculator.UI.Views"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance viewmodels:ShipComparisonViewModel, IsDesignTimeCreatable=False}"
+             d:DesignWidth="1100" d:DesignHeight="600">
+    <UserControl.Resources>
+        <!-- 可见性转换器 -->
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
+        <conv:StringToVisibilityConverter x:Key="StringToVis"/>
+    </UserControl.Resources>
+    <Grid x:Name="MainGrid">
+        <Grid.ColumnDefinitions>
+            <!-- 左栏（舰船选择）与排序栏（运输效率排序）列宽由 code-behind 随 IsSortExpanded 动态调整：
+                 展开排序时左栏 0（其余栏展开到可用宽度）、排序栏 1.6*；折叠时左栏 380、排序栏 0（不占位）。
+                 不用 x:Reference/ElementName 绑定，避免 ColumnDefinition 上的 XamlParseException 循环依赖崩溃。 -->
+            <ColumnDefinition Width="380"/>
+            <ColumnDefinition Width="400"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="0"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 左侧：筛选 + 舰船列表（排序栏展开时折叠隐藏） -->
+        <Border Grid.Column="0" Background="{StaticResource BgSurfaceBrush}" CornerRadius="8" Padding="12" Margin="0 0 8 0"
+                Visibility="{Binding IsLeftPanelVisible, Converter={StaticResource BoolToVis}}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 标题：舰船选择 -->
+                <TextBlock Grid.Row="0" Text="舰船选择" FontSize="18" FontWeight="Bold"
+                           Foreground="{StaticResource TextPrimaryBrush}" Margin="0 0 0 12"/>
+
+                <!-- 筛选行 -->
+                <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0 0 0 8">
+                    <!-- 种族筛选 -->
+                    <Grid Margin="0 0 0 8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="种族" Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontSize="13" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" Style="{StaticResource DarkComboBox}"
+                                  ItemsSource="{Binding RaceOptions}"
+                                  SelectedItem="{Binding SelectedRace}"/>
+                    </Grid>
+                    <!-- 尺寸筛选 -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="尺寸" Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontSize="13" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Column="1" Style="{StaticResource DarkComboBox}"
+                                  ItemsSource="{Binding SizeOptions}"
+                                  SelectedItem="{Binding SelectedSize}"/>
+                    </Grid>
+                </StackPanel>
+
+                <!-- 舰船列表（可滚动，支持单选） -->
+                <Border Grid.Row="2" Background="{StaticResource BgMantleBrush}" CornerRadius="6" Padding="0">
+                    <ListBox x:Name="ShipListBox"
+                             ItemsSource="{Binding FilteredShips}"
+                             SelectedItem="{Binding SelectedShip}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             ScrollViewer.CanContentScroll="True"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             VirtualizingStackPanel.IsVirtualizing="True"
+                             VirtualizingStackPanel.VirtualizationMode="Recycling">
+                        <ListBox.Resources>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="{StaticResource Surface1}"/>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="{StaticResource TextPrimary}"/>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="Transparent"/>
+                        </ListBox.Resources>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="models:ShipInfo">
+                                <Border Background="Transparent"
+                                        CornerRadius="4" Padding="8 3" Margin="0 0.5"
+                                        Cursor="Hand">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <!-- 尺寸标签 -->
+                                        <Border Grid.Column="0" Background="{StaticResource Surface0Brush}"
+                                                CornerRadius="3" Padding="6 1" Margin="0 0 8 0">
+                                            <TextBlock Text="{Binding SizeCategory}"
+                                                       Foreground="{StaticResource AccentBlueBrush}" FontSize="11"
+                                                       FontWeight="Bold"/>
+                                        </Border>
+                                        <!-- 舰船名 -->
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                                   Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <!-- 种族文字 -->
+                                        <TextBlock Grid.Column="2" Text="{Binding Race}"
+                                                   Foreground="{StaticResource TextMutedBrush}" FontSize="11"
+                                                   VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel/>
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                    </ListBox>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- 右侧：推进器/引擎选择 + 飞行属性 -->
+        <Border x:Name="ConfigurationPanel" Grid.Column="1" Background="{StaticResource BgSurfaceBrush}"
+                CornerRadius="8" Padding="0 16" Margin="8 0 0 0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 标题行：舰船配置 + 当前选中舰船名（右侧）+ ↻ 重置按钮（重置舰船选择/折叠排序栏） -->
+                <!-- 标题使用滚动视口宽度，并保留与下方卡片相同的右侧内边距：
+                     出现滚动条后，三组已选文字和重置按钮仍共用一个右边界。 -->
+                <Border Grid.Row="0" Margin="0 0 0 12" HorizontalAlignment="Left"
+                        Width="{Binding ViewportWidth, ElementName=ConfigurationScrollViewer}"
+                        Padding="0 0 12 0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="舰船配置" FontSize="18" FontWeight="Bold"
+                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="SelectedShipNameText" Grid.Column="1" Text="{Binding SelectedShip.Name}"
+                               Foreground="{StaticResource AccentBlueBrush}" FontSize="13"
+                               VerticalAlignment="Center" HorizontalAlignment="Stretch"
+                               TextAlignment="Right" Margin="8 0 8 0" TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding HasSelectedShip, Converter={StaticResource BoolToVis}}"/>
+                    <Button x:Name="ShipResetButton" Grid.Column="2" Content="↻" Command="{Binding ResetShipCommand}"
+                            Style="{StaticResource ActionButton}"
+                            Padding="8 2" FontSize="13" ToolTip="清除舰船选择" VerticalAlignment="Center"/>
+                </Grid>
+                </Border>
+
+                <ScrollViewer x:Name="ConfigurationScrollViewer" Grid.Row="1"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+
+                        <!-- ============ 推进器选择区 ============ -->
+                        <Border Background="{StaticResource BgMantleBrush}" CornerRadius="6" Padding="12" Margin="0 0 0 10">
+                            <StackPanel>
+                                <!-- 标题行 -->
+                                <Grid Margin="0 0 0 8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="推进器" FontSize="14" FontWeight="Bold"
+                                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                    <!-- 已选推进器 + 重新选择箭头（折叠时） -->
+                                    <TextBlock Grid.Column="2" Text="{Binding SelectedThruster.DisplayName}"
+                                               Foreground="{StaticResource AccentBlueBrush}" FontSize="13"
+                                               VerticalAlignment="Center" Margin="0 0 8 0"
+                                               Visibility="{Binding IsThrusterSelected, Converter={StaticResource BoolToVis}}"/>
+                                    <Button x:Name="ThrusterResetButton" Grid.Column="3" Content="↻" Command="{Binding ExpandThrusterCommand}"
+                                            Style="{StaticResource ActionButton}" Padding="8 2" FontSize="13"
+                                            ToolTip="重新选择推进器" VerticalAlignment="Center"
+                                            Visibility="{Binding IsThrusterSelected, Converter={StaticResource BoolToVis}}"/>
+                                </Grid>
+
+                                <!-- 展开时的选项 -->
+                                <ItemsControl ItemsSource="{Binding ThrusterOptions}"
+                                              Visibility="{Binding IsThrusterExpanded, Converter={StaticResource BoolToVis}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Content="{Binding DisplayName}"
+                                                    Command="{Binding DataContext.SelectThrusterCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource ActionButton}"
+                                                    HorizontalAlignment="Stretch" Margin="0 1" Padding="10 2.5"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ============ 引擎选择区 ============ -->
+                        <Border Background="{StaticResource BgMantleBrush}" CornerRadius="6" Padding="12" Margin="0 0 0 10">
+                            <StackPanel>
+                                <!-- 标题行 -->
+                                <Grid Margin="0 0 0 8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="引擎" FontSize="14" FontWeight="Bold"
+                                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                    <!-- 引擎数（每条船引擎数不同，如 1x/2x/3x） -->
+                                    <Border Grid.Column="1" Background="{StaticResource Surface0Brush}" CornerRadius="3" Padding="5 1"
+                                            Margin="6 0 0 0" VerticalAlignment="Center"
+                                            Visibility="{Binding HasSelectedShip, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="{Binding SelectedShip.EngineCount, StringFormat={}{0}x}"
+                                                   Foreground="{StaticResource AccentYellowBrush}" FontSize="12"
+                                                   FontWeight="Bold"/>
+                                    </Border>
+                                    <!-- 种族筛选（仅选择引擎前显示，选中后消失） -->
+                                    <TextBlock Grid.Column="2" Text="种族" FontSize="12"
+                                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                               Margin="8 0 4 0"
+                                               Visibility="{Binding IsEngineOptionsExpanded, Converter={StaticResource BoolToVis}}"/>
+                                    <ComboBox Grid.Column="3" Style="{StaticResource DarkComboBox}" Width="88" Height="26"
+                                              ItemsSource="{Binding EngineRaceOptions}"
+                                              SelectedItem="{Binding SelectedEngineRace}"
+                                              Visibility="{Binding IsEngineOptionsExpanded, Converter={StaticResource BoolToVis}}"/>
+                                    <!-- 风格筛选（仅选择引擎前显示，选中后消失） -->
+                                    <TextBlock Grid.Column="4" Text="风格" FontSize="12"
+                                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                               Margin="8 0 4 0"
+                                               Visibility="{Binding IsEngineOptionsExpanded, Converter={StaticResource BoolToVis}}"/>
+                                    <ComboBox Grid.Column="5" Style="{StaticResource DarkComboBox}" Width="88" Height="26"
+                                              ItemsSource="{Binding EngineStyleOptions}"
+                                              SelectedItem="{Binding SelectedEngineStyle}"
+                                              Visibility="{Binding IsEngineOptionsExpanded, Converter={StaticResource BoolToVis}}"/>
+                                    <!-- 已选择的部件（折叠时） -->
+                                    <TextBlock Grid.Column="7" Text="{Binding SelectedEngine.DisplayName}"
+                                               Foreground="{StaticResource AccentBlueBrush}" FontSize="13"
+                                               VerticalAlignment="Center" Margin="0 0 8 0"
+                                               Visibility="{Binding IsEngineSelected, Converter={StaticResource BoolToVis}}"/>
+                                    <!-- 展开按钮（折叠时） -->
+                                    <Button x:Name="EngineResetButton" Grid.Column="8" Content="↻" Command="{Binding ExpandEngineCommand}"
+                                            Style="{StaticResource ActionButton}" Padding="8 2" FontSize="13"
+                                            ToolTip="重新选择引擎" VerticalAlignment="Center"
+                                            Visibility="{Binding IsEngineSelected, Converter={StaticResource BoolToVis}}"/>
+                                </Grid>
+
+                                <!-- 引擎选项层（直接列出该舰船可用引擎） -->
+                                <ItemsControl ItemsSource="{Binding EngineOptions}"
+                                              Visibility="{Binding IsEngineOptionsExpanded, Converter={StaticResource BoolToVis}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Content="{Binding DisplayName}"
+                                                    Command="{Binding DataContext.SelectEngineCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource ActionButton}"
+                                                    HorizontalAlignment="Stretch" Margin="0 1" Padding="10 2.5"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- AI 驾驶员技能（GameData 的 aiflight 档位；默认最高档） -->
+                                <Grid Margin="0 10 0 0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="技能星级" FontSize="13"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               VerticalAlignment="Center" Margin="0 0 8 0"/>
+                                    <ComboBox Grid.Column="1" Style="{StaticResource DarkComboBox}" Width="92" Height="28"
+                                              ItemsSource="{Binding PilotingStarOptions}"
+                                              SelectedItem="{Binding SelectedPilotingStars}"
+                                              ToolTip="AI 驾驶员技能星级（默认 5⭐）">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding StringFormat={}{0} ⭐}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ============ 舰船属性区 ============ -->
+                        <Border x:Name="ShipAttributesCard" Background="{StaticResource BgMantleBrush}" CornerRadius="6" Padding="12">
+                            <StackPanel>
+                                <!-- 标题行：舰船属性 + 尺寸/仓储筛选框（独立控件；未选舰船时可下拉，选中后变为只读文本显示） -->
+                                <Grid Margin="0 0 0 8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="舰船属性" FontSize="14" FontWeight="Bold"
+                                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                    <!-- 尺寸：未选舰船时可下拉（点击行为待定）；选中后显示舰船级别文本 -->
+                                    <TextBlock Grid.Column="1" Text="尺寸" FontSize="12"
+                                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                               Margin="12 0 4 0"/>
+                                    <ComboBox Grid.Column="2" Style="{StaticResource DarkComboBox}" Width="72" Height="26"
+                                              ItemsSource="{Binding ShipAttributeSizeOptions}"
+                                              SelectedItem="{Binding ShipAttributeSize}"
+                                              Visibility="{Binding HasSelectedShip, Converter={StaticResource InverseBoolToVis}}"/>
+                                    <Border Grid.Column="2" Background="{StaticResource Surface0Brush}" CornerRadius="3" Padding="8 4" MinWidth="48"
+                                            Visibility="{Binding HasSelectedShip, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="{Binding ShipAttributeSize}" Foreground="{StaticResource TextPrimaryBrush}"
+                                                   FontSize="13" TextAlignment="Center"/>
+                                    </Border>
+                                    <!-- 仓储：未选舰船时可下拉（点击行为待定）；选中后显示舰船仓储类型文本（多类型斜杠连接） -->
+                                    <TextBlock Grid.Column="3" Text="仓储" FontSize="12"
+                                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                               Margin="12 0 4 0"/>
+                                    <ComboBox Grid.Column="4" Style="{StaticResource DarkComboBox}" Width="88" Height="26"
+                                              ItemsSource="{Binding ShipCargoTypeOptions}"
+                                              SelectedItem="{Binding ShipCargoType}"
+                                              Visibility="{Binding HasSelectedShip, Converter={StaticResource InverseBoolToVis}}"/>
+                                    <Border Grid.Column="4" Background="{StaticResource Surface0Brush}" CornerRadius="3" Padding="8 4" MinWidth="64"
+                                            Visibility="{Binding HasSelectedShip, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="{Binding ShipCargoTypeText}" Foreground="{StaticResource TextPrimaryBrush}"
+                                                   FontSize="13" TextAlignment="Center"/>
+                                    </Border>
+                                </Grid>
+                                <!-- 容量行：选中舰船即显示（不依赖推进器/引擎选择）；标签列宽与下方飞行属性一致（150）使数字对齐 -->
+                                <Grid Margin="0 3" Visibility="{Binding HasSelectedShip, Converter={StaticResource BoolToVis}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="150"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding CargoLabel}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                                    <TextBlock Grid.Column="1" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13" Text="{Binding CargoValue}"/>
+                                </Grid>
+                                <TextBlock Text="请选择推进器和引擎以查看飞行属性"
+                                           Foreground="{StaticResource TextMutedBrush}" FontSize="13" Margin="0 4"
+                                           Visibility="{Binding HasSelection, Converter={StaticResource InverseBoolToVis}}"/>
+
+                                <StackPanel Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
+                                    <Grid Margin="0 3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="常规速度" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                                        <TextBlock Grid.Column="1" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                                   Text="{Binding ForwardSpeed, StringFormat={}{0:0.0} m/s}"/>
+                                    </Grid>
+                                    <Grid Margin="0 3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="常规加速度" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                                        <TextBlock Grid.Column="1" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                                   Text="{Binding Acceleration, StringFormat={}{0:0.0} m/s²}"/>
+                                    </Grid>
+                                    <Grid Margin="0 3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="俯仰转向" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                                        <TextBlock Grid.Column="1" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                                   Text="{Binding PitchRate, StringFormat={}{0:0.00} °/s}"/>
+                                    </Grid>
+                                    <Grid Margin="0 3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="偏航转向" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                                        <TextBlock Grid.Column="1" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                                   Text="{Binding YawRate, StringFormat={}{0:0.00} °/s}"/>
+                                    </Grid>
+                                    <Grid Margin="0 3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="翻滚转向" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                                        <TextBlock Grid.Column="1" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                                   Text="{Binding RollRate, StringFormat={}{0:0.00} °/s}"/>
+                                    </Grid>
+                                    <Grid Margin="0 3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="巡航速度" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                                        <TextBlock Grid.Column="1" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                                   Text="{Binding TravelSpeed, StringFormat={}{0:0.0} m/s}"/>
+                                    </Grid>
+                                    <Grid Margin="0 3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="巡航引擎启动时间" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                                        <TextBlock Grid.Column="1" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                                   Text="{Binding TravelCharge, StringFormat={}{0:0.0} 秒}"/>
+                                    </Grid>
+                                    <Grid Margin="0 3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="巡航加速时间" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                                        <TextBlock Grid.Column="1" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"
+                                                   Text="{Binding TravelAttack, StringFormat={}{0:0.0} 秒}"/>
+                                    </Grid>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Button Content="批量应用到所有空间站"
+                                Command="{Binding ApplyConfigurationToAllStationsCommand}"
+                                Style="{StaticResource ActionButton}" Padding="16 7" FontSize="14"
+                                Margin="0 6 0 0" HorizontalAlignment="Right"
+                                AutomationProperties.AutomationId="ApplyShipConfigurationToAllStationsButton"
+                                Visibility="{Binding HasAnyStations, Converter={StaticResource BoolToVis}}"/>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- 运输效率列 -->
+        <Border Grid.Column="2" Background="{StaticResource BgSurfaceBrush}" CornerRadius="8" Padding="16" Margin="8 0 0 0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 标题行 -->
+                <Grid Grid.Row="0" Margin="0 0 0 12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="运输效率" FontSize="18" FontWeight="Bold"
+                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+
+                        <!-- ============ 航线（扇区）输入 ============ -->
+                        <Border Background="{StaticResource BgMantleBrush}" CornerRadius="6" Padding="12" Margin="0 0 0 10">
+                            <StackPanel>
+                                <!-- 标题行 + 重置 -->
+                                <Grid Margin="0 0 0 8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="航线" FontSize="14" FontWeight="Bold"
+                                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding RouteErrorText}" FontSize="12"
+                                               Foreground="{StaticResource AccentRedBrush}" VerticalAlignment="Center"
+                                               Margin="8 0 0 0" TextTrimming="CharacterEllipsis"
+                                               Visibility="{Binding RouteErrorText, Converter={StaticResource StringToVis}}"/>
+                                    <Button Grid.Column="2" Content="↻" Command="{Binding ResetRouteCommand}"
+                                            AutomationProperties.AutomationId="route.reset"
+                                            Style="{StaticResource ActionButton}" Padding="8 2" FontSize="13"
+                                            ToolTip="清空起始点/结束点扇区"/>
+                                </Grid>
+                                <!-- 起始点扇区 -->
+                                <Grid Margin="0 0 0 8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="起始点扇区" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="13" VerticalAlignment="Center"/>
+                                    <views:SectorAutoCompleteBox Grid.Column="1" Height="30"
+                                                                 InputAutomationId="route.start.input"
+                                                                 SuggestionsAutomationId="route.start.suggestions"
+                                                                 ItemsSource="{Binding SectorNames}"
+                                                                 Text="{Binding StartSectorText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Watermark="如 Mars"/>
+                                </Grid>
+                                <!-- 起始点下一跳：两端距离只对用户选定接口有效，存在多条可达首边时必须明确。 -->
+                                <Grid Margin="0 0 0 8" Visibility="{Binding IsStartNextHopSelectionVisible, Converter={StaticResource BoolToVis}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="起始点下一跳" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="13" VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1" Style="{StaticResource DarkComboBox}" Height="30"
+                                              ItemsSource="{Binding StartNextHopOptions}"
+                                              SelectedItem="{Binding SelectedStartNextHop, Mode=TwoWay}"
+                                              AutomationProperties.AutomationId="route.start-next-hop"
+                                              ToolTip="选择起点驶向的首个扇区"/>
+                                </Grid>
+                                <!-- 结束点扇区 -->
+                                <Grid Margin="0 0 0 8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="结束点扇区" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="13" VerticalAlignment="Center"/>
+                                    <views:SectorAutoCompleteBox Grid.Column="1" Height="30"
+                                                                 InputAutomationId="route.end.input"
+                                                                 SuggestionsAutomationId="route.end.suggestions"
+                                                                 ItemsSource="{Binding SectorNames}"
+                                                                 Text="{Binding EndSectorText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Watermark="如 The Void"/>
+                                </Grid>
+                                <!-- 结束点上一跳：多个末接口会使用户输入的终点距离对应不同路线。 -->
+                                <Grid Visibility="{Binding IsEndPreviousHopSelectionVisible, Converter={StaticResource BoolToVis}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="结束点上一跳" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="13" VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1" Style="{StaticResource DarkComboBox}" Height="30"
+                                              ItemsSource="{Binding EndPreviousHopOptions}"
+                                              SelectedItem="{Binding SelectedEndPreviousHop, Mode=TwoWay}"
+                                              AutomationProperties.AutomationId="route.end-previous-hop"
+                                              ToolTip="选择进入终点前所在的扇区"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ============ 距离（km）输入 ============ -->
+                        <Border Background="{StaticResource BgMantleBrush}" CornerRadius="6" Padding="12">
+                            <StackPanel>
+                                <!-- 标题行 + 重置 -->
+                                <Grid Margin="0 0 0 8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="距离（km）" FontSize="14" FontWeight="Bold"
+                                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding DistanceErrorText}" FontSize="12"
+                                               Foreground="{StaticResource AccentRedBrush}" VerticalAlignment="Center"
+                                               Margin="8 0 0 0" TextTrimming="CharacterEllipsis"
+                                               Visibility="{Binding DistanceErrorText, Converter={StaticResource StringToVis}}"/>
+                                    <Button Grid.Column="2" Content="↻" Command="{Binding ResetDistanceCommand}"
+                                            Style="{StaticResource ActionButton}" Padding="8 2" FontSize="13"
+                                            ToolTip="清空起始点→星门 / 星门→结束点距离"/>
+                                </Grid>
+                                <!-- 起始点 → 起始点星门（本地运输起=终时隐藏） -->
+                                <Grid Margin="0 0 0 8" Visibility="{Binding IsStartGateDistanceVisible, Converter={StaticResource BoolToVis}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="起始点→星门" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="13" VerticalAlignment="Center"/>
+                                    <TextBox Grid.Column="1" Height="30" VerticalContentAlignment="Center" Padding="8 5"
+                                             FontSize="13"
+                                             Background="{StaticResource Surface0Brush}" Foreground="{StaticResource TextPrimaryBrush}"
+                                             CaretBrush="{StaticResource TextPrimaryBrush}"
+                                             BorderBrush="{StaticResource Surface1Brush}" BorderThickness="1"
+                                             PreviewTextInput="NumericOnly_PreviewTextInput"
+                                             DataObject.Pasting="NumericOnly_Pasting"
+                                             PreviewKeyDown="DistanceBox_PreviewKeyDown"
+                                             Text="{Binding StartGateDistanceKm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                </Grid>
+                                <!-- 结束点星门 → 结束点（最底部：回车不再跳转） -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding EndGateDistanceLabel}" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="13" VerticalAlignment="Center"/>
+                                    <TextBox Grid.Column="1" Height="30" VerticalContentAlignment="Center" Padding="8 5"
+                                             FontSize="13"
+                                             Background="{StaticResource Surface0Brush}" Foreground="{StaticResource TextPrimaryBrush}"
+                                             CaretBrush="{StaticResource TextPrimaryBrush}"
+                                             BorderBrush="{StaticResource Surface1Brush}" BorderThickness="1"
+                                             PreviewTextInput="NumericOnly_PreviewTextInput"
+                                             DataObject.Pasting="NumericOnly_Pasting"
+                                             Text="{Binding EndGateDistanceKm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                </Grid>
+
+                                <!-- ===== 扇区段 - 距离 - 耗时：每次巡航引擎启动区间 ===== -->
+                                <Grid Margin="0 12 0 4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="64"/>
+                                        <ColumnDefinition Width="72"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="扇区段" FontSize="13" FontWeight="Bold"
+                                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    <TextBlock Grid.Column="1" Text="距离(km)" FontSize="13" FontWeight="Bold"
+                                               Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="耗时(s)" FontSize="13" FontWeight="Bold"
+                                               Foreground="{StaticResource TextSecondaryBrush}" Margin="14 0 0 0"/>
+                                </Grid>
+                                <ItemsControl ItemsSource="{Binding DistanceRows}" Margin="0 0 0 2">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0 2 0 0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="64"/>
+                                                    <ColumnDefinition Width="72"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{Binding SectorName}" FontSize="13"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding SectorName}"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding DistanceValueText}" FontSize="13"
+                                                           Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Right"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding TimeText}" FontSize="13"
+                                                           Foreground="{StaticResource TextSecondaryBrush}" Margin="14 0 0 0"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ============ 汇总 ============ -->
+                        <Border x:Name="TransportSummaryCard" Background="{StaticResource BgMantleBrush}"
+                                CornerRadius="6" Padding="12" Margin="0 10 0 0">
+                            <StackPanel>
+                                <Grid Margin="0 0 0 8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="汇总" FontSize="14" FontWeight="Bold"
+                                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="2" Content="计算所有舰船" Command="{Binding CalculateAllCommand}"
+                                            Style="{StaticResource ActionButton}" Padding="10 4" FontSize="13"
+                                            AutomationProperties.AutomationId="CalculateAllShipsButton"/>
+                                </Grid>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <!-- 标签列 Auto：以最宽标签（巡航引擎启动数）定宽，勾选框右对齐到其末尾 -->
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="巡航引擎启动数" FontSize="13" VerticalAlignment="Center"
+                                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0 2"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CruiseEngineCountText}" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Right" Margin="0 2"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="跳数" FontSize="13" VerticalAlignment="Center"
+                                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0 2"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding JumpCountText}" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Right" Margin="0 2"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="平均距离" FontSize="13" VerticalAlignment="Center"
+                                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0 2"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AverageDistanceText}" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Right" Margin="0 2"/>
+                                    <Grid Grid.Row="3" Grid.Column="0" Margin="0 2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="离港耗时" FontSize="13" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        <CheckBox Grid.Column="1" IsChecked="{Binding IncludeUndockInTotal}"
+                                                  Style="{StaticResource DarkCheckBox}" VerticalAlignment="Center"
+                                                  HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding UndockTimeText}" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Right" Margin="0 2"/>
+                                    <Grid Grid.Row="4" Grid.Column="0" Margin="0 2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="进港耗时" FontSize="13" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                                        <CheckBox Grid.Column="1" IsChecked="{Binding IncludeDockInTotal}"
+                                                  Style="{StaticResource DarkCheckBox}" VerticalAlignment="Center"
+                                                  HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding DockTimeText}" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Right" Margin="0 2"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="旋转耗时" FontSize="13" VerticalAlignment="Center"
+                                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0 2"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding RotationTimeText}" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Right" Margin="0 2"/>
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="总耗时" FontSize="13" VerticalAlignment="Center"
+                                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0 2"/>
+                                    <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding TotalTimeText}" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Right" Margin="0 2"/>
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="运输效率" FontSize="13" VerticalAlignment="Center"
+                                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0 2"/>
+                                    <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding EfficiencyText}" FontSize="13"
+                                               Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Right" Margin="0 2"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Button Content="计算所有空间站运输中的最优解"
+                                Command="{Binding CalculateAllStationTransportOptimalCommand}"
+                                Style="{StaticResource ActionButton}" Padding="16 7" FontSize="14"
+                                Margin="0 6 0 0" HorizontalAlignment="Right"
+                                AutomationProperties.AutomationId="CalculateAllStationTransportOptimalButton"
+                                Visibility="{Binding HasAnyStations, Converter={StaticResource BoolToVis}}"/>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- 运输效率排序栏（"计算所有舰船"，展开时显示，左栏折叠） -->
+        <Border Grid.Column="3" Background="{StaticResource BgSurfaceBrush}" CornerRadius="8" Padding="16" Margin="8 0 0 0"
+                Visibility="{Binding IsSortExpanded, Converter={StaticResource BoolToVis}}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="运输效率排序" FontSize="18" FontWeight="Bold"
+                           Foreground="{StaticResource TextPrimaryBrush}" Margin="0 0 0 8"/>
+                <!-- 空态提示 -->
+                <TextBlock Grid.Row="1" Text="暂无结果：请确认航线/距离与选择有效" FontSize="12"
+                           Foreground="{StaticResource TextMutedBrush}" Margin="0 0 0 6"
+                           Visibility="{Binding HasNoSortResults, Converter={StaticResource BoolToVis}}"/>
+                <!-- DataGrid 让表头与数据单元格使用同一列定义，滚动条出现或窗口缩放时也不会错位。 -->
+                <DataGrid Grid.Row="2" Grid.RowSpan="2" ItemsSource="{Binding SortResults}"
+                          AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                          CanUserDeleteRows="False" CanUserReorderColumns="False" CanUserResizeColumns="False"
+                          CanUserSortColumns="False" HeadersVisibility="Column" RowHeaderWidth="0"
+                          Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}"
+                          BorderBrush="{StaticResource Surface2Brush}" BorderThickness="1" GridLinesVisibility="None"
+                          ColumnHeaderHeight="28" RowHeight="26"
+                          ScrollViewer.CanContentScroll="True"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling">
+                    <DataGrid.Resources>
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Background" Value="{StaticResource Surface0Brush}"/>
+                            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                            <Setter Property="FontSize" Value="11"/>
+                            <Setter Property="FontWeight" Value="Bold"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                            <Setter Property="VerticalContentAlignment" Value="Center"/>
+                            <Setter Property="BorderBrush" Value="{StaticResource Surface2Brush}"/>
+                            <Setter Property="BorderThickness" Value="0 0 1 1"/>
+                        </Style>
+                        <Style TargetType="DataGridCell">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderBrush" Value="{StaticResource Surface1Brush}"/>
+                            <Setter Property="BorderThickness" Value="0 0 1 1"/>
+                            <Setter Property="Padding" Value="4 3"/>
+                            <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        </Style>
+                        <Style x:Key="SortTextCell" TargetType="TextBlock">
+                            <Setter Property="FontSize" Value="11"/>
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="TextAlignment" Value="Center"/>
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                        </Style>
+                        <Style x:Key="SortNumericCell" TargetType="TextBlock" BasedOn="{StaticResource SortTextCell}">
+                            <Setter Property="TextAlignment" Value="Right"/>
+                        </Style>
+                    </DataGrid.Resources>
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                        </Style>
+                    </DataGrid.RowStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="序" Binding="{Binding Rank}" Width="0.55*">
+                            <DataGridTextColumn.ElementStyle><Style TargetType="TextBlock" BasedOn="{StaticResource SortTextCell}"><Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/></Style></DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="舰船名" Binding="{Binding ShipName}" Width="1.55*">
+                            <DataGridTextColumn.ElementStyle><Style TargetType="TextBlock" BasedOn="{StaticResource SortTextCell}"><Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/><Setter Property="ToolTip" Value="{Binding ShipName}"/></Style></DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="尺寸" Binding="{Binding Size}" Width="0.65*">
+                            <DataGridTextColumn.ElementStyle><Style TargetType="TextBlock" BasedOn="{StaticResource SortTextCell}"><Setter Property="Foreground" Value="{StaticResource AccentBlueBrush}"/></Style></DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="推进器" Binding="{Binding Thruster}" Width="1.10*">
+                            <DataGridTextColumn.ElementStyle><Style TargetType="TextBlock" BasedOn="{StaticResource SortTextCell}"><Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/><Setter Property="ToolTip" Value="{Binding Thruster}"/></Style></DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="引擎" Binding="{Binding Engine}" Width="1.45*">
+                            <DataGridTextColumn.ElementStyle><Style TargetType="TextBlock" BasedOn="{StaticResource SortTextCell}"><Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/><Setter Property="ToolTip" Value="{Binding Engine}"/></Style></DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="容量" Binding="{Binding Capacity}" Width="1.05*">
+                            <DataGridTextColumn.ElementStyle><Style TargetType="TextBlock" BasedOn="{StaticResource SortNumericCell}"><Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/></Style></DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="效率" Binding="{Binding Efficiency}" Width="1.35*">
+                            <DataGridTextColumn.ElementStyle><Style TargetType="TextBlock" BasedOn="{StaticResource SortNumericCell}"><Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/><Setter Property="FontWeight" Value="Bold"/></Style></DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,137 @@
+<UserControl x:Class="X4Calculator.UI.Views.SaveImportView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:converters="clr-namespace:X4Calculator.UI.Converters"
+             mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="600">
+    <UserControl.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
+    </UserControl.Resources>
+
+    <Border Background="{StaticResource BgSurfaceBrush}" CornerRadius="8" Padding="16">
+        <Grid>
+            <Grid Visibility="{Binding IsEntryPage, Converter={StaticResource BoolToVisibilityConverter}}"
+                  AutomationProperties.AutomationId="save-import.entry">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Command="{Binding ShowDefaultSavesCommand}" Style="{StaticResource CardButton}"
+                        AutomationProperties.AutomationId="save-import.default">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="30">
+                        <TextBlock Text="从默认存档位置导入" FontSize="27" FontWeight="SemiBold"
+                                   TextAlignment="Center" TextWrapping="Wrap"/>
+                        <TextBlock Text="自动查找 Documents\Egosoft\X4 下的存档"
+                                   Margin="0 18 0 0" FontSize="16" Foreground="{StaticResource TextSecondaryBrush}"
+                                   TextAlignment="Center" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="2" Command="{Binding ManualImportCommand}" Style="{StaticResource CardButton}"
+                        AutomationProperties.AutomationId="save-import.manual">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="30">
+                        <TextBlock Text="手动选择导入" FontSize="27" FontWeight="SemiBold"
+                                   TextAlignment="Center" TextWrapping="Wrap"/>
+                        <TextBlock Text="选择任意位置的 .xml.gz 存档"
+                                    Margin="0 18 0 0" FontSize="16" Foreground="{StaticResource TextSecondaryBrush}"
+                                    TextAlignment="Center" TextWrapping="Wrap"
+                                    AutomationProperties.AutomationId="save-import.manual-description"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <Grid Visibility="{Binding IsDefaultPage, Converter={StaticResource BoolToVisibilityConverter}}"
+                  AutomationProperties.AutomationId="save-import.default-list">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="默认位置中的存档" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <TextBlock Text="点击文件即可导入" Margin="0 5 0 0" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="返回" Command="{Binding BackCommand}"
+                            Style="{StaticResource ActionButton}" AutomationProperties.AutomationId="save-import.back"/>
+                </Grid>
+                <Border Grid.Row="1" Margin="0 16 0 6" Padding="16 0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="3*"/>
+                            <ColumnDefinition Width="Auto" MinWidth="145"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="存档文件名" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"
+                                   AutomationProperties.AutomationId="save-import.header.filename"/>
+                        <TextBlock Grid.Column="1" Text="游戏内显示存档名" Margin="20 0 0 0" FontSize="14"
+                                   FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"
+                                   AutomationProperties.AutomationId="save-import.header.gamename"/>
+                        <TextBlock Grid.Column="2" Text="修改日期" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"
+                                   AutomationProperties.AutomationId="save-import.header.modified"/>
+                    </Grid>
+                </Border>
+                <ListBox Grid.Row="2" ItemsSource="{Binding Saves}"
+                          Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Margin" Value="0 0 0 4"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Button Command="{Binding DataContext.ImportSaveCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}" Padding="16 6" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center"
+                                    Background="{StaticResource Surface0Brush}" BorderBrush="{StaticResource Surface1Brush}" BorderThickness="1" Cursor="Hand">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*"/>
+                                        <ColumnDefinition Width="3*"/>
+                                        <ColumnDefinition Width="Auto" MinWidth="145"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding FileName}" FontSize="17" Foreground="{StaticResource TextPrimaryBrush}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding GameDisplayName}" Margin="20 0 0 0"
+                                                FontSize="17" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"
+                                                ToolTip="{Binding GameDisplayName}"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding LastWriteTime, StringFormat={}{0:yyyy-MM-dd HH:mm}}"
+                                               FontSize="15" Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
+                                </Grid>
+                            </Button>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock Grid.Row="3" Text="{Binding StatusMessage}" Margin="0 10 0 0"
+                           Foreground="{StaticResource AccentYellowBrush}" FontSize="14" TextAlignment="Center"
+                           Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibilityConverter}}"/>
+            </Grid>
+
+            <Grid Visibility="{Binding IsResultPage, Converter={StaticResource BoolToVisibilityConverter}}"
+                  AutomationProperties.AutomationId="save-import.result">
+                <StackPanel Width="520" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="存档导入" FontSize="27" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"
+                               TextAlignment="Center"/>
+                    <ProgressBar Height="7" Margin="0 24 0 0" IsIndeterminate="True"
+                                 Visibility="{Binding IsImporting, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <TextBlock Text="{Binding StatusMessage}" Margin="0 22 0 0" FontSize="18"
+                               Foreground="{StaticResource AccentGreenBrush}" TextAlignment="Center" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="save-import.status"/>
+                    <TextBlock Text="{Binding ImportedFileName}" Margin="0 10 0 0" FontSize="14"
+                               Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Center" TextWrapping="Wrap"/>
+                    <Button Content="取消导入" Command="{Binding CancelImportCommand}" Margin="0 24 0 0"
+                            HorizontalAlignment="Center" Style="{StaticResource ActionButton}"
+                            AutomationProperties.AutomationId="save-import.cancel"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

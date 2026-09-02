@@ -1,0 +1,225 @@
+<Window x:Class="X4Calculator.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:X4Calculator.UI"
+        xmlns:views="clr-namespace:X4Calculator.UI.Views"
+        xmlns:viewModels="clr-namespace:X4Calculator.UI.ViewModels"
+        xmlns:converters="clr-namespace:X4Calculator.UI.Converters"
+        mc:Ignorable="d"
+        Title="X4 生产线计算器" Height="720" Width="1100"
+        WindowStartupLocation="CenterScreen"
+        Icon="pack://application:,,,/X4Calculator;component/Assets/app.ico"
+        FontFamily="Segoe UI"
+        Background="{StaticResource BgSurfaceBrush}"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True">
+    <Window.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <DataTemplate x:Key="LoadingFeatureTemplate">
+            <Border Background="{StaticResource BgSurfaceBrush}" Padding="16">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="正在准备此功能所需的游戏数据" Foreground="{StaticResource TextPrimaryBrush}" FontSize="16"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="你可以先浏览其他标签页；完成后此页会自动可用。" Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0 8 0 0" HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="ProductionChainTemplate">
+            <views:ProductionChainView DataContext="{Binding ProductionChain}"/>
+        </DataTemplate>
+        <DataTemplate x:Key="StationPlanningTemplate">
+            <views:StationPlanningView DataContext="{Binding StationPlanning}"/>
+        </DataTemplate>
+        <DataTemplate x:Key="StarMapTemplate">
+            <views:StarMapView Map="{Binding StarMap}"
+                               TransportSource="{Binding StationPlanning}"
+                               PlacementSource="{Binding StationPlanning}"/>
+        </DataTemplate>
+        <DataTemplate x:Key="SaveImportTemplate">
+            <views:SaveImportView DataContext="{Binding SaveImport}"/>
+        </DataTemplate>
+        <DataTemplate x:Key="ShipComparisonTemplate">
+            <views:ShipComparisonView DataContext="{Binding ShipComparison}"/>
+        </DataTemplate>
+    </Window.Resources>
+    <Grid Background="{StaticResource BgSurfaceBrush}">
+        <Grid.LayoutTransform>
+            <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
+        </Grid.LayoutTransform>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TabControl x:Name="MainTabControl" Grid.Row="0" SelectedIndex="{Binding SelectedTabIndex}" Style="{StaticResource MainTabControl}"
+                    AutomationProperties.AutomationId="main.tabs">
+            <TabItem Header="首页" AutomationProperties.AutomationId="main.tab.home">
+                <Border Background="{StaticResource BgSurfaceBrush}" Padding="16">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="欢迎使用 X4 生产线计算器" FontSize="28" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}" TextAlignment="Center" Margin="0 18 0 12"
+                                   AutomationProperties.AutomationId="startup.welcome"/>
+                        <views:GameDataSetupView x:Name="GameDataSetupContent" Grid.Row="1" DataContext="{Binding GameDataSetup}">
+                            <views:GameDataSetupView.Style>
+                                <Style TargetType="views:GameDataSetupView">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DataContext.NeedsGameDataSetup, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </views:GameDataSetupView.Style>
+                        </views:GameDataSetupView>
+                        <StackPanel x:Name="HomeNormalContent" Grid.Row="1" Width="460" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding NeedsGameDataSetup}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                        <TextBlock Text="选择上方标签页即可先了解可用功能。游戏数据准备完成后，数据相关页面会自动切换为实际内容。"
+                                   Margin="0 16 0 0" FontSize="15" Foreground="{StaticResource TextSecondaryBrush}"
+                                   TextWrapping="Wrap" TextAlignment="Center"/>
+                        <Button x:Name="ReloadDataButton" Content="重新加载数据" Command="{Binding LoadDataCommand}"
+                                Style="{StaticResource ActionButton}" HorizontalAlignment="Center" Margin="0 16 0 0"
+                                Visibility="{Binding DataLoaded, Converter={StaticResource BoolToVisibilityConverter}}"
+                                AutomationProperties.AutomationId="home.reload"/>
+                        <TextBlock Text="数据加载失败。请确认 GameData 目录存在后重试。" Margin="0 16 0 0"
+                                   Foreground="{StaticResource AccentRedBrush}" TextAlignment="Center"
+                                   Visibility="{Binding HasLoadError, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <Button Content="重试加载" Command="{Binding RetryLoadCommand}" Style="{StaticResource ActionButton}"
+                                HorizontalAlignment="Center" Margin="0 16 0 0"
+                                Visibility="{Binding HasLoadError, Converter={StaticResource BoolToVisibilityConverter}}"
+                                AutomationProperties.AutomationId="startup.retry"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </TabItem>
+            <TabItem Header="生产链路" AutomationProperties.AutomationId="main.tab.production-chain">
+                <ContentControl Content="{Binding}">
+                    <ContentControl.Style>
+                        <Style TargetType="ContentControl">
+                            <Setter Property="ContentTemplate" Value="{StaticResource LoadingFeatureTemplate}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DataLoaded}" Value="True">
+                                    <Setter Property="ContentTemplate" Value="{StaticResource ProductionChainTemplate}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ContentControl.Style>
+                </ContentControl>
+            </TabItem>
+            <TabItem Header="产线编排" AutomationProperties.AutomationId="main.tab.planning">
+                <ContentControl Content="{Binding}">
+                    <ContentControl.Style><Style TargetType="ContentControl"><Setter Property="ContentTemplate" Value="{StaticResource LoadingFeatureTemplate}"/><Style.Triggers><DataTrigger Binding="{Binding DataLoaded}" Value="True"><Setter Property="ContentTemplate" Value="{StaticResource StationPlanningTemplate}"/></DataTrigger></Style.Triggers></Style></ContentControl.Style>
+                </ContentControl>
+            </TabItem>
+            <TabItem Header="存档导入" AutomationProperties.AutomationId="main.tab.import">
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource SaveImportTemplate}"/>
+            </TabItem>
+            <TabItem Header="星区地图" AutomationProperties.AutomationId="main.tab.starmap">
+                <ContentControl Content="{Binding}">
+                    <ContentControl.Style>
+                        <Style TargetType="ContentControl">
+                            <Setter Property="ContentTemplate" Value="{StaticResource LoadingFeatureTemplate}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DataLoaded}" Value="True">
+                                    <Setter Property="ContentTemplate" Value="{StaticResource StarMapTemplate}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ContentControl.Style>
+                </ContentControl>
+            </TabItem>
+            <TabItem Header="运输效率计算" AutomationProperties.AutomationId="main.tab.transport">
+                <ContentControl Content="{Binding}">
+                    <ContentControl.Style>
+                        <Style TargetType="ContentControl">
+                            <Setter Property="ContentTemplate" Value="{StaticResource LoadingFeatureTemplate}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DataLoaded}" Value="True">
+                                    <Setter Property="ContentTemplate" Value="{StaticResource ShipComparisonTemplate}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ContentControl.Style>
+                </ContentControl>
+            </TabItem>
+        </TabControl>
+
+        <Border x:Name="StatusBar" Grid.Row="1" Background="{StaticResource BgMantleBrush}"
+                BorderBrush="{StaticResource Surface1Brush}" BorderThickness="0 1 0 0" Padding="12 6">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid Grid.Column="0" HorizontalAlignment="Stretch">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <ProgressBar Grid.Column="0" Width="180" Height="6" IsIndeterminate="True" VerticalAlignment="Center"
+                                 Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" Foreground="{StaticResource TextMutedBrush}" FontSize="12"
+                               Margin="12 0 0 0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding StatusMessage}"
+                               AutomationProperties.AutomationId="app.status"/>
+                </Grid>
+                <ContentControl x:Name="TopMessageControl" Grid.Column="1" Content="{Binding TopMessage}"
+                                Visibility="{Binding HasTopMessage, Converter={StaticResource BoolToVisibilityConverter}}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="520" Margin="20 0">
+                    <ContentControl.ContentTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Text}" FontSize="13" TextAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Text}"
+                                       AutomationProperties.AutomationId="app.top-message">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Opacity" Value="1"/>
+                                        <Setter Property="Foreground" Value="{StaticResource ThroughputBlueBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Kind}" Value="{x:Static viewModels:AppTopMessageKind.Error}">
+                                                <Setter Property="Foreground" Value="{StaticResource AccentRedBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding DataContext.IsTopMessageFading, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                                <DataTrigger.EnterActions>
+                                                    <BeginStoryboard x:Name="TopMessageFadeStoryboard">
+                                                        <Storyboard>
+                                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="1" To="0"
+                                                                             Duration="0:0:0.75"/>
+                                                        </Storyboard>
+                                                    </BeginStoryboard>
+                                                </DataTrigger.EnterActions>
+                                                <DataTrigger.ExitActions>
+                                                    <RemoveStoryboard BeginStoryboardName="TopMessageFadeStoryboard"/>
+                                                </DataTrigger.ExitActions>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ContentControl.ContentTemplate>
+                </ContentControl>
+                <TextBlock x:Name="ZoomText" Grid.Column="2" Text="100%" Foreground="{StaticResource TextMutedBrush}" FontSize="12"
+                           VerticalAlignment="Center" HorizontalAlignment="Right" Margin="16 0 0 0"
+                           ToolTip="Ctrl + = 放大 · Ctrl + - 缩小 · Ctrl + 0 复位"
+                           AutomationProperties.AutomationId="app.zoom"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

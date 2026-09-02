@@ -1,0 +1,16 @@
+bin/
+obj/
+artifacts/
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.DS_Store
+Thumbs.db
+
+# 生成内容或本地提取的运行数据
+GameData/
+GameData_Full/
+X4Calculator.App/

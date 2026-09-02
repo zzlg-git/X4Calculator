@@ -1,0 +1,254 @@
+<UserControl x:Class="X4Calculator.UI.Views.ProductionChainView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d" d:DesignHeight="620" d:DesignWidth="1060">
+    <UserControl.Resources>
+        <Style x:Key="SelectorButton" TargetType="Button" BasedOn="{StaticResource ActionButton}">
+            <Setter Property="Padding" Value="12 5"/>
+            <Setter Property="Margin" Value="0 0 6 0"/>
+            <Setter Property="Background" Value="{StaticResource Surface0Brush}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource SelectionBlueBrush}"/>
+                    <Setter Property="Foreground" Value="{StaticResource AccentBlueBrush}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Background="{StaticResource BgSurfaceBrush}" CornerRadius="8" Padding="12">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="2*" MinHeight="160"/>
+                <RowDefinition Height="1"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="3*" MinHeight="190"/>
+            </Grid.RowDefinitions>
+
+            <!-- 生产大类与谱系。工业/农业来自 X4 group 的上层归类，谱系控制整条递归链。 -->
+            <Grid Grid.Row="0" Margin="0 0 0 10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="1"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button Content="工业" Command="{Binding SelectCategoryCommand}" CommandParameter="industrial"
+                            AutomationProperties.AutomationId="production.category.industrial">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource ActionButton}">
+                                <Setter Property="Padding" Value="15 6"/>
+                                <Setter Property="Margin" Value="0 0 6 0"/>
+                                <Setter Property="Background" Value="{StaticResource Surface0Brush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsIndustrialSelected}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource SelectionBlueBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBlueBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Content="农业" Command="{Binding SelectCategoryCommand}" CommandParameter="agricultural"
+                            AutomationProperties.AutomationId="production.category.agricultural">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource ActionButton}">
+                                <Setter Property="Padding" Value="15 6"/>
+                                <Setter Property="Background" Value="{StaticResource Surface0Brush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsAgriculturalSelected}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource SelectionBlueBrush}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+                <Border Grid.Column="1" Width="1" Background="{StaticResource Surface1Brush}" Margin="12 2"/>
+                <ItemsControl Grid.Column="2" ItemsSource="{Binding LineageOptions}" VerticalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding DisplayName}" Style="{StaticResource SelectorButton}"
+                                    Command="{Binding DataContext.SelectLineageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    AutomationProperties.AutomationId="{Binding Id, StringFormat=production.lineage.{0}}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+
+            <!-- 商品候选区：四列独立滚动。 -->
+            <ItemsControl x:Name="CandidateColumnsControl" Grid.Row="1" ItemsSource="{Binding TierColumns}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><UniformGrid Columns="4"/></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="5 0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Grid Margin="2 0 2 6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Tier, StringFormat=TIER {0}}" Foreground="{StaticResource TextSecondaryBrush}"
+                                               FontSize="11" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding Description, StringFormat= · {0}}" Foreground="{StaticResource TextMutedBrush}"
+                                               FontSize="11"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding Wares.Count}" Foreground="{StaticResource TextMutedBrush}" FontSize="11"/>
+                            </Grid>
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl ItemsSource="{Binding Wares}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Style="{StaticResource FlatButton}"
+                                                    Command="{Binding DataContext.SelectWareCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    AutomationProperties.AutomationId="{Binding Id, StringFormat=production.ware.{0}}">
+                                                <Border CornerRadius="6" Padding="9 3" Margin="0 0 0 2.5">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="{StaticResource CandidateCardBrush}"/>
+                                                            <Setter Property="BorderBrush" Value="{StaticResource Surface1Brush}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                    <Setter Property="Background" Value="{StaticResource CandidateSelectedBrush}"/>
+                                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentGreenBrush}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Ellipse Width="6" Height="6" Margin="0 0 8 0">
+                                                            <Ellipse.Style>
+                                                                <Style TargetType="Ellipse">
+                                                                    <Setter Property="Fill" Value="{StaticResource AccentGreenBrush}"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding CatalogRole}" Value="Intermediate">
+                                                                            <Setter Property="Fill" Value="{StaticResource AccentYellowBrush}"/>
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding CatalogRole}" Value="Resource">
+                                                                            <Setter Property="Fill" Value="{StaticResource AccentRedBrush}"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Ellipse.Style>
+                                                        </Ellipse>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource TextPrimaryBrush}"
+                                                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                    </Grid>
+                                                </Border>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Border Grid.Row="2" Background="{StaticResource Surface0Brush}" Margin="0 8"/>
+
+            <Grid Grid.Row="3" Margin="4 2 4 8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="5"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border Background="{StaticResource AccentBlueBrush}" CornerRadius="3"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10 0 0 0">
+                    <TextBlock x:Name="SelectedProductTitleText" Text="{Binding SelectedProductTitle}" Foreground="{StaticResource AccentBlueBrush}"
+                               FontSize="18" FontWeight="Bold"/>
+                    <TextBlock Text="{Binding ChainStatusMessage}" Foreground="{StaticResource AccentRedBrush}"
+                               FontSize="12" Margin="14 4 0 0"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- 完整链路和箭头共享同一滚动坐标系。 -->
+            <ScrollViewer x:Name="ChainScrollViewer" Grid.Row="4" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto" ScrollChanged="ChainScrollViewer_ScrollChanged">
+                <Grid x:Name="ChainGraphRoot" MinWidth="900">
+                    <Canvas x:Name="ConnectionCanvas" IsHitTestVisible="False" Panel.ZIndex="0"/>
+                    <ItemsControl x:Name="ChainColumnsControl" ItemsSource="{Binding ChainColumns}" Panel.ZIndex="1">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><UniformGrid Columns="4"/></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="5 0">
+                                    <Grid Margin="2 0 2 8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Tier, StringFormat=TIER {0}}" Foreground="{StaticResource TextMutedBrush}"
+                                                   FontSize="10" FontWeight="Bold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Wares.Count}" Foreground="{StaticResource TextMutedBrush}" FontSize="10"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding Wares}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Tag="{Binding Id}" Loaded="ChainNode_Loaded" Unloaded="ChainNode_Unloaded"
+                                                        SizeChanged="ChainNode_SizeChanged" CornerRadius="7" Padding="9 3.5" Margin="0 0 0 6"
+                                                        Width="{Binding CardWidth}" HorizontalAlignment="Left">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="{StaticResource CardSurfaceBrush}"/>
+                                                            <Setter Property="BorderBrush" Value="{StaticResource Surface1Brush}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsTarget}" Value="True">
+                                                                    <Setter Property="Background" Value="{StaticResource ChainSelectedBrush}"/>
+                                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBlueBrush}"/>
+                                                                    <Setter Property="BorderThickness" Value="2"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                        </Grid.RowDefinitions>
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource TextPrimaryBrush}"
+                                                                       FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                                                            <Border Grid.Column="1" Background="{StaticResource MethodBadgeBrush}" CornerRadius="4" Padding="5 1" Margin="6 0 0 0">
+                                                                <TextBlock Text="{Binding MethodLabel}" Foreground="{StaticResource AccentBlueBrush}" FontSize="10"/>
+                                                            </Border>
+                                                        </Grid>
+                                                        <TextBlock Grid.Row="1" Text="{Binding Subtitle}" Foreground="{StaticResource TextMutedBrush}"
+                                                                   FontSize="10" Margin="0 3 0 0" TextTrimming="CharacterEllipsis"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

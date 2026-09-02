@@ -1,0 +1,70 @@
+<UserControl x:Class="X4Calculator.UI.Views.SectorAutoCompleteBox"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             x:Name="Root">
+    <UserControl.Resources>
+        <!-- 下拉候选项样式（暗色，高亮选中项；不可聚焦，避免点击抢走输入框键盘焦点） -->
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="8 2.5"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}" CornerRadius="3" Margin="2 1">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource Surface1Brush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource Surface1Brush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <!-- 输入框（支持英文、中文扇区名） -->
+        <TextBox x:Name="InputBox"
+                 automation:AutomationProperties.AutomationId="{Binding InputAutomationId, ElementName=Root}"
+                 Background="{StaticResource Surface0Brush}" Foreground="{StaticResource TextPrimaryBrush}" CaretBrush="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource Surface1Brush}" BorderThickness="1"
+                 Padding="8 5" FontSize="13" VerticalContentAlignment="Center"
+                 TextChanged="OnInputTextChanged"
+                 PreviewKeyDown="OnPreviewKeyDown"
+                 LostKeyboardFocus="OnLostFocus"/>
+        <!-- 空文本占位提示（可见性由代码隐藏控制） -->
+        <TextBlock x:Name="WatermarkText" Text="{Binding Watermark, ElementName=Root}"
+                   Foreground="{StaticResource TextMutedBrush}" FontSize="13" Visibility="Collapsed"
+                   Margin="10 0 0 0" VerticalAlignment="Center" IsHitTestVisible="False"/>
+
+        <!-- 自动补全候选下拉 -->
+        <Popup x:Name="SuggestionPopup" PlacementTarget="{Binding ElementName=InputBox}" Placement="Bottom"
+               AllowsTransparency="True" StaysOpen="False" PopupAnimation="Fade" IsOpen="False">
+            <Border Background="{StaticResource BgSurfaceBrush}" BorderBrush="{StaticResource Surface1Brush}" BorderThickness="1" CornerRadius="4"
+                    MinWidth="{Binding ActualWidth, ElementName=InputBox}" Margin="0 2 0 0">
+                <ListBox x:Name="SuggestionList" Background="Transparent" BorderThickness="0"
+                         automation:AutomationProperties.AutomationId="{Binding SuggestionsAutomationId, ElementName=Root}"
+                         Focusable="False"
+                         MaxHeight="220" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         PreviewMouseLeftButtonDown="OnSuggestionPreviewMouseLeftButtonDown">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>
