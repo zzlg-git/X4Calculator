@@ -25,6 +25,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     private bool _isTopMessageFading;
     private CancellationTokenSource? _topMessageCancellation;
     private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync;
+    private readonly Func<string, Task> _deleteGameDataAsync;
     private readonly string _gameDataPath;
     private readonly TransportShipConfigurationStore _transportShipConfigurations = new();
     private ShipComparisonViewModel _shipComparison;
@@ -34,13 +35,13 @@ public class MainViewModel : ViewModelBase, IDisposable
     private bool _needsGameDataSetup;
 
     public MainViewModel()
-        : this((delay, cancellationToken) => Task.Delay(delay, cancellationToken), null, null, null)
+        : this((delay, cancellationToken) => Task.Delay(delay, cancellationToken), null, null, null, null)
     {
     }
 
     /// <summary>供确定性测试注入延时实现；应用运行时使用默认构造函数。</summary>
     public MainViewModel(Func<TimeSpan, CancellationToken, Task> delayAsync)
-        : this(delayAsync, null, null, null)
+        : this(delayAsync, null, null, null, null)
     {
     }
 
@@ -49,9 +50,11 @@ public class MainViewModel : ViewModelBase, IDisposable
         Func<TimeSpan, CancellationToken, Task> delayAsync,
         string? gameDataPath,
         IX4DataPreparationService? dataPreparationService,
-        IX4GameDirectoryPicker? gameDirectoryPicker)
+        IX4GameDirectoryPicker? gameDirectoryPicker,
+        Func<string, Task>? deleteGameDataAsync = null)
     {
         _delayAsync = delayAsync ?? throw new ArgumentNullException(nameof(delayAsync));
+        _deleteGameDataAsync = deleteGameDataAsync ?? DeleteGameDataDirectoryAsync;
         _gameDataPath = Path.GetFullPath(gameDataPath ?? GetDefaultGameDataDirectory());
         _gameData = new GameDataDB();
         _calculator = new ProductionCalculator(_gameData);
@@ -92,6 +95,9 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         LoadDataCommand = new RelayCommand(async _ => await LoadDataAsync(), _ => !IsLoading);
         RetryLoadCommand = new RelayCommand(async _ => await LoadDataAsync(), _ => !IsLoading);
+        DeleteAndReextractGameDataCommand = new RelayCommand(
+            async _ => await DeleteAndReextractGameDataAsync(),
+            _ => DataLoaded && !IsLoading && !SaveImport.IsImporting);
     }
 
     public string StatusMessage
@@ -132,6 +138,7 @@ public class MainViewModel : ViewModelBase, IDisposable
 
     public RelayCommand LoadDataCommand { get; }
     public RelayCommand RetryLoadCommand { get; }
+    public RelayCommand DeleteAndReextractGameDataCommand { get; }
     public SaveImportViewModel SaveImport { get; }
     public GameDataSetupViewModel GameDataSetup { get; }
 
@@ -269,7 +276,7 @@ public class MainViewModel : ViewModelBase, IDisposable
 
             StatusMessage = $"游戏数据加载完成：{_gameData.Wares.Count} 种商品，{_gameData.Ships.Count} 艘舰船";
             DataLoaded = true;
-            if (SaveImport.IsDefaultPage) SaveImport.ShowDefaultSaves();
+            await SaveImport.OnDataReadyAsync();
         }
         catch (Exception ex)
         {
@@ -344,6 +351,52 @@ public class MainViewModel : ViewModelBase, IDisposable
         await LoadDataAsync();
     }
 
+    private async Task DeleteAndReextractGameDataAsync()
+    {
+        if (IsLoading || !DataLoaded) return;
+
+        IsLoading = true;
+        HasLoadError = false;
+        StatusMessage = "正在删除当前游戏数据...";
+        try
+        {
+            try
+            {
+                ValidateGameDataDeletionTarget(_gameDataPath);
+                await _deleteGameDataAsync(_gameDataPath);
+            }
+            catch (Exception ex)
+            {
+                if (GameDataDirectory.IsUsable(_gameDataPath))
+                {
+                    StatusMessage = $"删除游戏数据失败：{ex.Message}";
+                    ShowError(StatusMessage);
+                    return;
+                }
+
+                StatusMessage = $"当前游戏数据已不可用，需要重新解包：{ex.Message}";
+                ShowError(StatusMessage);
+                await EnterGameDataSetupAsync();
+                return;
+            }
+
+            await EnterGameDataSetupAsync();
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task EnterGameDataSetupAsync()
+    {
+        SaveImport.ResetForGameDataChange();
+        DataLoaded = false;
+        NeedsGameDataSetup = true;
+        StatusMessage = "当前游戏数据已删除，正在重新准备解包...";
+        await GameDataSetup.InitializeAsync();
+    }
+
     private void OnGameDataSetupPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(GameDataSetupViewModel.StatusMessage) && NeedsGameDataSetup)
@@ -398,5 +451,41 @@ public class MainViewModel : ViewModelBase, IDisposable
             ? Path.Combine(AppContext.BaseDirectory, "GameData")
             : testOverride;
     }
+
+    private static void ValidateGameDataDeletionTarget(string path)
+    {
+        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        var rootPath = Path.TrimEndingDirectorySeparator(Path.GetPathRoot(fullPath) ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(rootPath) ||
+            fullPath.Equals(rootPath, StringComparison.OrdinalIgnoreCase) ||
+            !Path.GetFileName(fullPath).Equals("GameData", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("只允许删除明确的 GameData 目录。");
+        }
+    }
+
+    private static Task DeleteGameDataDirectoryAsync(string path) => Task.Run(() =>
+    {
+        if (!Directory.Exists(path)) return;
+
+        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        var parentPath = Path.GetDirectoryName(fullPath)
+            ?? throw new InvalidOperationException("GameData 目录缺少有效父目录。");
+        var isolatedPath = Path.Combine(parentPath, $".GameData.deleting-{Guid.NewGuid():N}");
+        Directory.Move(fullPath, isolatedPath);
+        try
+        {
+            Directory.Delete(isolatedPath, recursive: true);
+        }
+        catch
+        {
+            if (!Directory.Exists(fullPath) && Directory.Exists(isolatedPath))
+            {
+                try { Directory.Move(isolatedPath, fullPath); }
+                catch { /* MainViewModel 会按当前 GameData 是否仍可用决定后续状态。 */ }
+            }
+            throw;
+        }
+    });
 
 }

@@ -1213,6 +1213,10 @@ public class ShipComparisonViewModel : ViewModelBase
         }
     }
 
+    private sealed record WeightedRoutePlan(
+        IReadOnlyList<RoutePlanSegment> Segments,
+        double FlowM3PerSecond);
+
     /// <summary>
     /// "计算所有舰船"：校验航线/距离/选择，失败则在应用底部信息栏显示错误；成功则展开排序栏并计算。
     /// </summary>
@@ -1404,12 +1408,12 @@ public class ShipComparisonViewModel : ViewModelBase
         OnPropertyChanged(nameof(HasNoSortResults));
         if (!IsSortExpanded) return;
 
-        IReadOnlyList<IReadOnlyList<RoutePlanSegment>> routePlans;
+        IReadOnlyList<WeightedRoutePlan> routePlans;
         bool useStationTiming;
         if (_sortCalculationMode == SortCalculationMode.ManualRoute)
         {
             if (_routePlan is null || _routePlan.Count == 0) return;
-            routePlans = [_routePlan];
+            routePlans = [new WeightedRoutePlan(_routePlan, 1d)];
             useStationTiming = false;
         }
         else if (_sortCalculationMode == SortCalculationMode.StationAverage)
@@ -1497,7 +1501,7 @@ public class ShipComparisonViewModel : ViewModelBase
         OnPropertyChanged(nameof(HasNoSortResults));
     }
 
-    private IReadOnlyList<IReadOnlyList<RoutePlanSegment>> BuildStationTransportRoutePlans(
+    private IReadOnlyList<WeightedRoutePlan> BuildStationTransportRoutePlans(
         TransportStorageType storageType)
     {
         if (_starMap == null || _stationTransportOptimizationSource?.IsTransportNetworkReady != true)
@@ -1510,22 +1514,26 @@ public class ShipComparisonViewModel : ViewModelBase
             {
                 var distance = distanceCalculator.Calculate(
                     link.Route, link.SourceSectorPosition, link.TargetSectorPosition);
-                return (IReadOnlyList<RoutePlanSegment>)StationTransportEfficiencyCalculator
+                var segments = (IReadOnlyList<RoutePlanSegment>)StationTransportEfficiencyCalculator
                     .BuildRoutePlan(link.Route, distance)
                     .Select(segment => new RoutePlanSegment(
                         segment.DistanceKm, segment.EndAtGate, segment.IsGateCrossing))
                     .ToArray();
+                return new WeightedRoutePlan(segments, link.FlowM3PerSecond);
             })
+            .Where(plan => double.IsFinite(plan.FlowM3PerSecond) && plan.FlowM3PerSecond > 0)
             .ToArray();
     }
 
-    /// <summary>为候选舰船+部件组合计算一条手动航线或多条空间站链路的平均效率。</summary>
+    /// <summary>
+    /// 为候选舰船+部件组合计算一条手动航线，或按稳态货物流量求多条空间站链路的加权等效效率。
+    /// </summary>
     private void AddEfficiencyRow(
         List<ShipEfficiencyRow> rows,
         ShipInfo ship,
         ThrusterInfo thruster,
         EngineInfo engine,
-        IReadOnlyList<IReadOnlyList<RoutePlanSegment>> routePlans,
+        IReadOnlyList<WeightedRoutePlan> routePlans,
         bool useStationTiming)
     {
         if (ship.CargoCapacity <= 0) return;
@@ -1537,12 +1545,16 @@ public class ShipComparisonViewModel : ViewModelBase
                 ? StationTransportEfficiencyCalculator.CalculateTotalSeconds(
                     stats,
                     ship,
-                    routePlans[i].Select(segment => new StationTransportRoutePlanSegment(
+                    routePlans[i].Segments.Select(segment => new StationTransportRoutePlanSegment(
                         segment.DistanceKm, segment.EndAtGate, segment.IsGateCrossing)).ToArray())
-                : ComputeTotalSeconds(stats, ship, routePlans[i]);
+                : ComputeTotalSeconds(stats, ship, routePlans[i].Segments);
             if (total <= 0) return;
             efficiencies[i] = ship.CargoCapacity / total;
         }
+        var weightedEfficiency = StationTransportFleetCalculator.Calculate(
+            routePlans.Select((plan, index) => new StationTransportFleetWorkload(
+                plan.FlowM3PerSecond,
+                efficiencies[index]))).WeightedEfficiencyM3PerSecond;
         rows.Add(new ShipEfficiencyRow
         {
             ShipId = ship.Id,
@@ -1551,7 +1563,7 @@ public class ShipComparisonViewModel : ViewModelBase
             Thruster = thruster.DisplayName,
             Engine = engine.DisplayName,
             Capacity = $"{ship.CargoCapacity:0}",
-            EfficiencyValue = efficiencies.Average(),
+            EfficiencyValue = weightedEfficiency,
         });
     }
 

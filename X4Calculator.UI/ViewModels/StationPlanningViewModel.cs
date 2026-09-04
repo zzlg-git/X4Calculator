@@ -15,12 +15,17 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         new("habitation", "居住"), new("storage", "仓储"), new("connection", "连接"),
         new("defence", "防御"), new("other", "其他")
     ];
+    private static readonly IReadOnlyList<(string Transport, string Label)> StorageFillDrainTransportGroups =
+    [
+        ("container", "集装"), ("solid", "固体"), ("liquid", "液体")
+    ];
     private readonly GameDataDB _gameData;
     private readonly StationProductionPlanner _planner;
     private readonly StationWorkforceGrowthCalculator _workforceGrowthCalculator;
     private readonly StationStorageAllocationCalculator _storageAllocationCalculator;
     private readonly StationWorkforceConsumptionCalculator _workforceConsumptionCalculator;
     private readonly StationTransportNetworkCalculator _transportNetworkCalculator = new();
+    private readonly StationTransportFlowCalculator _transportFlowCalculator = new();
     private readonly StationTransportCapabilityCalculator _transportCapabilityCalculator;
     private readonly TransportShipConfigurationStore _transportShipConfigurations;
     private readonly Action<string>? _showError;
@@ -52,6 +57,8 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
     private readonly SemaphoreSlim _transportWorkerGate = new(1, 1);
     private CancellationTokenSource? _transportCancellation;
     private StationTransportNetwork? _transportNetwork;
+    private IReadOnlyList<StationTransportStationSnapshot> _transportStationSnapshots = [];
+    private IReadOnlyList<StationTransportFlowAllocation> _transportFlows = [];
     private Dictionary<string, StationTransportLinkSelection> _transportSelections =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -277,18 +284,22 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
                 .GroupBy(item => item.Station.Id, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First().Station,
                     StringComparer.OrdinalIgnoreCase);
-            return _transportNetwork!.Routes
-                .Where(route => route.Path != null &&
-                    _transportSelections.TryGetValue(GetTransportRouteKey(route), out var selection) &&
-                    selection.IsSelected)
-                .Select(route =>
+            return _transportFlows
+                .Select(flow =>
                 {
+                    var route = flow.Route;
                     if (ResolveTransportStorageType(route.WareId) is not { } storageType ||
+                        _gameData.FindByWareId(route.WareId) is not { Volume: > 0 } ware ||
+                        route.Path == null ||
                         !stations.TryGetValue(route.SourceStationId, out var source) ||
                         !stations.TryGetValue(route.TargetStationId, out var target))
                         return null;
                     return new StationTransportOptimizationLink(
-                        storageType, route.Path!, source.SectorPosition, target.SectorPosition);
+                        storageType,
+                        route.Path,
+                        source.SectorPosition,
+                        target.SectorPosition,
+                        flow.UnitsPerMinute * ware.Volume / 60d);
                 })
                 .Where(link => link != null)
                 .Select(link => link!)
@@ -349,7 +360,6 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
     public IReadOnlyList<string> SectorNames { get; private set; } = Array.Empty<string>();
     public bool FillWorkforceCapacity { get => _selectedStationItem?.FillWorkforceCapacity ?? false; set { if (_selectedStationItem == null) return; _selectedStationItem.FillWorkforceCapacity = value; OnPropertyChanged(); } }
     public bool SkipWorkforceGrowth { get => _selectedStationItem?.SkipWorkforceGrowth ?? true; set { if (_selectedStationItem == null) return; _selectedStationItem.SkipWorkforceGrowth = value; OnPropertyChanged(); } }
-    public bool UseTeladianiumMaterials { get => _selectedStationItem?.UseTeladianiumMaterials ?? false; set { if (_selectedStationItem == null) return; _selectedStationItem.UseTeladianiumMaterials = value; OnPropertyChanged(); RefreshCapacityItems(); } }
     public string PreferredRace { get => _selectedStationItem?.PreferredRace ?? "argon"; set { if (_selectedStationItem == null) return; _selectedStationItem.PreferredRace = value; OnPropertyChanged(); } }
     public int ManagerStars { get => _selectedStationItem?.ManagerStars ?? 5; set { if (_selectedStationItem == null) return; _selectedStationItem.ManagerStars = value; OnPropertyChanged(); } }
     public string StationDuty { get => _selectedStationItem?.StationDuty ?? "工厂"; set { if (_selectedStationItem == null) return; _selectedStationItem.StationDuty = value; OnPropertyChanged(); } }
@@ -415,6 +425,10 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
     public string SectorPopulationBonusText { get; private set; } = "+0%";
     public bool HasWorkforceShiftTime { get; private set; }
     public string WorkforceShiftTimeText { get; private set; } = string.Empty;
+    public string StorageFillDrainTimeText { get; private set; } = string.Empty;
+    public bool IsStorageFillDrainTimeVisible =>
+        StationDuty.Equals("工厂", StringComparison.Ordinal) &&
+        !string.IsNullOrWhiteSpace(StorageFillDrainTimeText);
     public bool IsWorkforceSufficient { get; private set; } = true;
     public bool CanAutoAddIntermediateProducts { get; private set; }
     public StationProductionRateUnit RateUnit
@@ -532,7 +546,7 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         var states = ImportedStations.Where(item => !string.IsNullOrWhiteSpace(item.Station.Id))
             .ToDictionary(item => item.Station.Id,
                 item => (item.FillWorkforceCapacity, item.SkipWorkforceGrowth,
-                    item.PreferredBuildMethod, item.PreferredRace, item.UseTeladianiumMaterials),
+                    item.PreferredBuildMethod, item.PreferredRace),
                 StringComparer.OrdinalIgnoreCase);
         ImportedStations.Clear();
         foreach (var station in stations.OrderBy(item => item.Name, StringComparer.Ordinal))
@@ -544,7 +558,6 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
                 item.FillWorkforceCapacity = state.FillWorkforceCapacity;
                 item.SkipWorkforceGrowth = state.SkipWorkforceGrowth;
                 item.PreferredRace = state.PreferredRace;
-                item.UseTeladianiumMaterials = state.UseTeladianiumMaterials;
                 // 存档直属 build@method 是权威状态；只有存档缺失时才保留本页选择。
                 if (string.IsNullOrWhiteSpace(station.BuildMethod))
                     item.PreferredBuildMethod = state.PreferredBuildMethod;
@@ -566,7 +579,6 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
             return;
         OnPropertyChanged(nameof(FillWorkforceCapacity));
         OnPropertyChanged(nameof(SkipWorkforceGrowth));
-        OnPropertyChanged(nameof(UseTeladianiumMaterials));
         OnPropertyChanged(nameof(PreferredRace));
         RefreshStation();
         StartTransportCalculation();
@@ -581,7 +593,6 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         OnPropertyChanged(nameof(CanChooseStationPlacement));
         OnPropertyChanged(nameof(StationCode)); OnPropertyChanged(nameof(HasStationCode));
         OnPropertyChanged(nameof(FillWorkforceCapacity)); OnPropertyChanged(nameof(SkipWorkforceGrowth));
-        OnPropertyChanged(nameof(UseTeladianiumMaterials));
         OnPropertyChanged(nameof(PreferredRace));
         OnPropertyChanged(nameof(ManagerStars)); OnPropertyChanged(nameof(StationDuty)); OnPropertyChanged(nameof(PreferredBuildMethod));
         StationName = string.Empty;
@@ -625,7 +636,6 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         OnPropertyChanged(nameof(CanChooseStationPlacement));
         OnPropertyChanged(nameof(StationCode)); OnPropertyChanged(nameof(HasStationCode));
         OnPropertyChanged(nameof(FillWorkforceCapacity)); OnPropertyChanged(nameof(SkipWorkforceGrowth));
-        OnPropertyChanged(nameof(UseTeladianiumMaterials));
         OnPropertyChanged(nameof(PreferredRace));
         OnPropertyChanged(nameof(ManagerStars)); OnPropertyChanged(nameof(StationDuty)); OnPropertyChanged(nameof(PreferredBuildMethod));
         StationName = item.Name;
@@ -676,6 +686,8 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
             OnPropertyChanged(nameof(PlacedPlannedStations));
             PlacementStateChanged?.Invoke(this, EventArgs.Empty);
         }
+        if (removedImportedStation)
+            _starMap?.SetPlayerStations(ImportedStations.Select(station => station.Station));
         if (wasSelected || IsOverview) SelectOverview();
         if (removedImportedStation || removedPlacedPlannedStation) StartTransportCalculation();
     }
@@ -782,7 +794,6 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
             .GroupBy(module => module.ModuleId, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First().OperatingMode, StringComparer.OrdinalIgnoreCase);
         SelectedStation.Modules.RemoveAll(module => module.IsAutoAdded);
-        NormalizeTeladianiumProductionVariants();
         var unresolvedWareIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (var pass = 0; pass < 512; pass++)
@@ -879,7 +890,7 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
             .Where(race => !string.IsNullOrWhiteSpace(race))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var item in GetAutoAddCandidates(wareId)
-                     .OrderBy(item => GetBuildMethodRank(item.Definition, item.Product, UseTeladianiumMaterials))
+                     .OrderBy(item => GetBuildMethodRank(item.Product))
                      .ThenByDescending(item => stationRaces.Contains(item.Definition.Race))
                      .ThenByDescending(item => item.Definition.Race.Equals("argon", StringComparison.OrdinalIgnoreCase) || item.Definition.Race.Equals("default", StringComparison.OrdinalIgnoreCase))
                      .ThenBy(item => item.Definition.Name, StringComparer.Ordinal))
@@ -912,85 +923,14 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
             .SelectMany(definition => definition.Products
                 .Where(product => product.WareId.Equals(wareId, StringComparison.OrdinalIgnoreCase))
                 .Select(product => (Definition: definition, Product: product)))
-            .Where(item => !item.Product.Method.Equals("recycling", StringComparison.OrdinalIgnoreCase))
-            .Where(item => UseTeladianiumMaterials || !IsTeladianiumProduction(item.Definition, item.Product));
+            .Where(item => !item.Product.Method.Equals("recycling", StringComparison.OrdinalIgnoreCase));
 
-    private int GetBuildMethodRank(
-        StationModuleDefinition definition,
-        StationModuleProductDefinition product,
-        bool useTeladianiumMaterials)
+    private static int GetBuildMethodRank(StationModuleProductDefinition product)
     {
         var method = product.Method;
-        if (useTeladianiumMaterials && IsTeladianiumProduction(definition, product)) return 0;
-        if (method.Equals("default", StringComparison.OrdinalIgnoreCase)) return useTeladianiumMaterials ? 1 : 0;
-        if (method.Equals("processing", StringComparison.OrdinalIgnoreCase)) return useTeladianiumMaterials ? 2 : 1;
+        if (method.Equals("default", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (method.Equals("processing", StringComparison.OrdinalIgnoreCase)) return 1;
         return 3;
-    }
-
-    private bool IsTeladianiumProduction(
-        StationModuleDefinition definition,
-        StationModuleProductDefinition product)
-    {
-        if (product.WareId.Equals("teladianium", StringComparison.OrdinalIgnoreCase)) return true;
-        if (!product.Method.Equals("teladi", StringComparison.OrdinalIgnoreCase)) return false;
-        var recipe = _gameData.FindByWareId(product.WareId)?.Production?
-            .FirstOrDefault(item => item.Method.Equals(product.Method, StringComparison.OrdinalIgnoreCase));
-        return recipe?.Consumption?.ContainsKey("teladianium") == true;
-    }
-
-    private void NormalizeTeladianiumProductionVariants()
-    {
-        if (SelectedStation == null || _selectedStationItem == null) return;
-        foreach (var source in SelectedStation.Modules.Where(module => !module.IsAutoAdded).ToArray())
-        {
-            var sourceDefinition = _gameData.StationModuleDefinitions.GetValueOrDefault(source.ModuleId);
-            var sourceProduct = sourceDefinition?.Products.FirstOrDefault(product =>
-                product.WareId.Equals(source.WareId, StringComparison.OrdinalIgnoreCase));
-            if (sourceDefinition == null || sourceProduct == null) continue;
-
-            var sourceIsTeladianium = IsTeladianiumProduction(sourceDefinition, sourceProduct);
-            if (UseTeladianiumMaterials == sourceIsTeladianium) continue;
-            var desired = _gameData.StationModuleDefinitions.Values
-                .SelectMany(definition => definition.Products
-                    .Where(product => product.WareId.Equals(source.WareId, StringComparison.OrdinalIgnoreCase))
-                    .Select(product => (Definition: definition, Product: product)))
-                .Where(item => UseTeladianiumMaterials
-                    ? IsTeladianiumProduction(item.Definition, item.Product)
-                    : item.Product.Method.Equals("default", StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(item => item.Definition.Race.Equals("default", StringComparison.OrdinalIgnoreCase) ||
-                                           item.Definition.Race.Equals("generic", StringComparison.OrdinalIgnoreCase))
-                .ThenBy(item => item.Definition.Name, StringComparer.Ordinal)
-                .FirstOrDefault();
-            if (desired.Definition == null || desired.Definition.Id.Equals(source.ModuleId, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var movable = GetUnbuiltModuleCount(_selectedStationItem, source);
-            if (movable <= 0) continue;
-            var target = SelectedStation.Modules.FirstOrDefault(module => !module.IsAutoAdded &&
-                module.ModuleId.Equals(desired.Definition.Id, StringComparison.OrdinalIgnoreCase));
-            var ware = target == null ? _gameData.FindByWareId(desired.Product.WareId) : null;
-            var recipe = ware?.Production?.FirstOrDefault(item =>
-                item.Method.Equals(desired.Product.Method, StringComparison.OrdinalIgnoreCase));
-            if (target == null && (ware == null || recipe == null)) continue;
-
-            source.Count -= movable;
-            if (source.Count == 0) SelectedStation.Modules.Remove(source);
-            if (target != null)
-            {
-                target.Count += movable;
-                continue;
-            }
-
-            SelectedStation.Modules.Add(new ProductionModule
-            {
-                ModuleId = desired.Definition.Id,
-                WareId = ware!.Id,
-                Ware = ware,
-                Recipe = recipe!,
-                Method = recipe!.Method,
-                Count = movable
-            });
-        }
     }
 
     private void RefreshStation(bool notifyPlacementState = true)
@@ -1160,6 +1100,7 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
     private void RefreshCapacityAndTransport()
     {
         RefreshCapacityItems();
+        RefreshStorageWareItems();
         StartTransportCalculation();
     }
 
@@ -1172,7 +1113,11 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         StorageWareItems.Clear();
         AvailableTradeWareOptions.Clear();
         SelectedTradeWareId = string.Empty;
-        if (SelectedStation == null) return;
+        if (SelectedStation == null)
+        {
+            SetStorageFillDrainTimeText(string.Empty);
+            return;
+        }
 
         var calculationStation = CreateCalculationStation(_selectedStationItem!);
         var contributions = _planner.CalculateModuleContributions(
@@ -1236,12 +1181,114 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
                 pricingProfile?.ProductionBatchAmount,
                 enableImplicitWorkforceBuyOffer: !_selectedStationItem!.IsPlanned && allocation.IsWorkforceConsumable,
                 workforceAutomaticBuyAmount: allocation.WorkforceAutomaticBuyAmount,
+                storageAllocationChanged: RefreshStorageWareItems,
                 transportSettingsChanged: StartTransportCalculation)
             { IsExpanded = expandedOrdinary.Contains(ware.Id) };
             StorageWareItems.Add(item);
         }
+        RefreshStorageFillDrainTime(wareIdList, allocations);
         RefreshAvailableTradeWareOptions();
     }
+
+    private void RefreshStorageFillDrainTime(
+        IReadOnlyCollection<string> currentWareIds,
+        IReadOnlyDictionary<string, StationWareStorageAllocation> currentAllocations)
+    {
+        if (_selectedStationItem == null || !StationDuty.Equals("工厂", StringComparison.Ordinal))
+        {
+            SetStorageFillDrainTimeText(string.Empty);
+            return;
+        }
+
+        var currentNetRates = CapacityItems.ToDictionary(
+            item => item.WareId, item => NormalizeStorageNetRate(item.PerMinute),
+            StringComparer.OrdinalIgnoreCase);
+        var allBuiltNetRates = CapacityItems.ToDictionary(
+            item => item.WareId, item => NormalizeStorageNetRate(item.TotalPerMinute),
+            StringComparer.OrdinalIgnoreCase);
+        var currentTimes = StationStorageFillDrainTimeCalculator.Calculate(
+            currentAllocations.Values.Select(allocation => new StationStorageFillDrainTimeInput(
+                allocation.Transport,
+                allocation.QuantityLimit,
+                currentNetRates.GetValueOrDefault(allocation.WareId))));
+
+        var hasUnbuiltModules = SelectedStation!.Modules.Any(module =>
+                                    _selectedStationItem.GetPlannedModuleCount(module) > 0) ||
+                                SelectedStation.AdditionalModules.Any(module =>
+                                    _selectedStationItem.GetPlannedModuleCount(module) > 0);
+        IReadOnlyDictionary<string, double> allBuiltTimes =
+            new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (hasUnbuiltModules)
+        {
+            var allBuiltStation = CreateCalculationStation(
+                _selectedStationItem,
+                module => module.Count,
+                module => module.Count);
+            var allBuiltWareIds = currentWareIds
+                .Concat(allBuiltNetRates.Keys)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var allBuiltAllocations = _storageAllocationCalculator.Calculate(
+                allBuiltStation,
+                allBuiltWareIds,
+                operationalOnly: false,
+                _playerBlueprintWareIds,
+                PreferredBuildMethod);
+            allBuiltTimes = StationStorageFillDrainTimeCalculator.Calculate(
+                allBuiltAllocations.Values.Select(allocation => new StationStorageFillDrainTimeInput(
+                    allocation.Transport,
+                    allocation.QuantityLimit,
+                    allBuiltNetRates.GetValueOrDefault(allocation.WareId))));
+        }
+
+        var parts = new List<string>();
+        foreach (var (transport, label) in StorageFillDrainTransportGroups)
+        {
+            var hasCurrent = currentTimes.TryGetValue(transport, out var currentMinutes);
+            var hasAllBuilt = allBuiltTimes.TryGetValue(transport, out var allBuiltMinutes);
+            if (!hasCurrent && !hasAllBuilt) continue;
+
+            string value;
+            if (hasCurrent && hasAllBuilt)
+            {
+                value = $"{FormatRoundedHoursMinutes(currentMinutes)}（{FormatRoundedHoursMinutes(allBuiltMinutes)}）";
+            }
+            else if (hasCurrent)
+            {
+                value = FormatRoundedHoursMinutes(currentMinutes);
+            }
+            else
+            {
+                value = $"—（{FormatRoundedHoursMinutes(allBuiltMinutes)}）";
+            }
+            parts.Add($"{label}：{value}");
+        }
+
+        SetStorageFillDrainTimeText(parts.Count == 0
+            ? string.Empty
+            : $"零仓储被填满/满仓储被耗尽时间 {string.Join("，", parts)}");
+    }
+
+    private void SetStorageFillDrainTimeText(string value)
+    {
+        if (string.Equals(StorageFillDrainTimeText, value, StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(IsStorageFillDrainTimeVisible));
+            return;
+        }
+        StorageFillDrainTimeText = value;
+        OnPropertyChanged(nameof(StorageFillDrainTimeText));
+        OnPropertyChanged(nameof(IsStorageFillDrainTimeVisible));
+    }
+
+    private static string FormatRoundedHoursMinutes(double minutes)
+    {
+        var roundedMinutes = (long)Math.Round(minutes, MidpointRounding.AwayFromZero);
+        return $"{roundedMinutes / 60:N0}h{roundedMinutes % 60}m";
+    }
+
+    private static double NormalizeStorageNetRate(double netPerMinute) =>
+        Math.Abs(netPerMinute) < 0.0000001d ? 0d : netPerMinute;
 
     private void RefreshAvailableTradeWareOptions()
     {
@@ -1393,6 +1440,8 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         if (cancellation == null)
         {
             _transportNetwork = new StationTransportNetwork([]);
+            _transportStationSnapshots = [];
+            _transportFlows = [];
             IsTransportLoading = false;
             TransportCalculationTask = Task.CompletedTask;
             RefreshTransportView();
@@ -1406,8 +1455,7 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
             var offers = station.WareSettings.ToDictionary(
                 setting => setting.WareId,
                 setting => new StationTransportOfferDirections(
-                    setting.BuyEnabled == true || setting.BuyOffer != null ||
-                    setting.StationSupplyBuyOffer != null,
+                    setting.BuyEnabled == true || setting.BuyOffer != null,
                     setting.SellEnabled || setting.SellOffer != null),
                 StringComparer.OrdinalIgnoreCase);
             return new TransportCalculationSeed(
@@ -1441,7 +1489,7 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         {
             await _transportWorkerGate.WaitAsync(cancellation.Token).ConfigureAwait(false);
             workerAcquired = true;
-            var network = await Task.Run(() =>
+            var calculation = await Task.Run(() =>
             {
                 var snapshots = seeds.Select(seed =>
                 {
@@ -1461,22 +1509,25 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
                         seed.Station.Id, seed.Station.Name, seed.Station.SectorId,
                         seed.Duty, seed.ManagerStars, capacity, seed.Offers);
                 }).ToArray();
-                return _transportNetworkCalculator.Calculate(snapshots, graph, cancellation.Token);
+                var network = _transportNetworkCalculator.Calculate(snapshots, graph, cancellation.Token);
+                return new TransportNetworkCalculation(snapshots, network);
             }, cancellation.Token).ConfigureAwait(false);
 
             await RunOnCapturedContextAsync(context, () =>
             {
                 if (generation != _transportGeneration || cancellation.IsCancellationRequested) return;
-                _transportNetwork = network;
+                _transportNetwork = calculation.Network;
+                _transportStationSnapshots = calculation.Stations;
                 var retainedSelections = new Dictionary<string, StationTransportLinkSelection>(
                     StringComparer.OrdinalIgnoreCase);
-                foreach (var route in network.Routes)
+                foreach (var route in calculation.Network.Routes)
                 {
                     var key = GetTransportRouteKey(route);
                     retainedSelections[key] = _transportSelections.GetValueOrDefault(key)
                         ?? new StationTransportLinkSelection(key, OnTransportSelectionChanged);
                 }
                 _transportSelections = retainedSelections;
+                RecalculateTransportFlows();
                 IsTransportLoading = false;
                 RefreshTransportView();
                 NotifyTransportMapStateChanged();
@@ -1491,6 +1542,8 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
             {
                 if (generation != _transportGeneration) return;
                 _transportNetwork = null;
+                _transportStationSnapshots = [];
+                _transportFlows = [];
                 IsTransportLoading = false;
                 TransportStatusText = $"运输链路计算失败：{ex.Message}";
                 HasTransportStatus = true;
@@ -1651,9 +1704,24 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
 
     private void OnTransportSelectionChanged()
     {
+        RecalculateTransportFlows();
         NotifyTransportMapStateChanged();
         RefreshStationTransportStatistics();
         NotifyTransportEfficiencyChanged();
+    }
+
+    private void RecalculateTransportFlows()
+    {
+        if (_transportNetwork == null || _transportStationSnapshots.Count == 0)
+        {
+            _transportFlows = [];
+            return;
+        }
+
+        var enabledRoutes = _transportNetwork.Routes.Where(route =>
+            _transportSelections.TryGetValue(GetTransportRouteKey(route), out var selection) &&
+            selection.IsSelected);
+        _transportFlows = _transportFlowCalculator.Calculate(_transportStationSnapshots, enabledRoutes);
     }
 
     private void NotifyTransportEfficiencyChanged()
@@ -1735,20 +1803,41 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
             if (results.Any(result => result == null))
             {
                 StationTransportStatistics.Add(new StationTransportStorageStatisticItemViewModel(
-                    storageType, GetTransportStorageName(storageType), "无舰船配置", "无舰船配置", false));
+                    storageType,
+                    GetTransportStorageName(storageType),
+                    "无舰船配置",
+                    "无舰船配置",
+                    false,
+                    "无舰船配置"));
                 continue;
             }
 
             var configuredResults = results.Select(result => result!).ToArray();
             var averageSeconds = configuredResults.Average(result => result.TotalSeconds);
-            var averageEfficiencyM3PerHour = configuredResults.Average(
-                result => result.EfficiencyM3PerSecond) * 3600d;
+            var averageEfficiencyM3PerSecond = configuredResults.Average(
+                result => result.EfficiencyM3PerSecond);
+            var workloads = storageRoutes
+                .Select((route, index) => (Route: route, Result: configuredResults[index]))
+                .Join(
+                    _transportFlows.Where(flow => flow.InitiatingStationId.Equals(
+                        selectedItem.Station.Id, StringComparison.OrdinalIgnoreCase)),
+                    item => item.Route,
+                    flow => flow.Route,
+                    (item, flow) =>
+                    {
+                        var volume = _gameData.FindByWareId(item.Route.WareId)?.Volume ?? 0;
+                        return new StationTransportFleetWorkload(
+                            flow.UnitsPerMinute * volume / 60d,
+                            item.Result.EfficiencyM3PerSecond);
+                    });
+            var fleet = StationTransportFleetCalculator.Calculate(workloads);
             StationTransportStatistics.Add(new StationTransportStorageStatisticItemViewModel(
                 storageType,
                 GetTransportStorageName(storageType),
                 FormatMinutesSeconds((long)Math.Round(averageSeconds, MidpointRounding.AwayFromZero)),
-                $"{averageEfficiencyM3PerHour:N0} m³/h",
-                true));
+                FormattableString.Invariant($"{averageEfficiencyM3PerSecond:0.0} m³/s"),
+                true,
+                $"{fleet.RequiredShipCount:N0} 艘"));
         }
     }
 
@@ -1834,6 +1923,10 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
 
     private ProductionCatalogRole ResolveTransportWareRole(string wareId)
     {
+        var storageWare = StorageWareItems.FirstOrDefault(item =>
+            !item.IsStationSupply && item.WareId.Equals(wareId, StringComparison.OrdinalIgnoreCase));
+        if (storageWare != null) return storageWare.Role;
+
         var ware = _gameData.FindByWareId(wareId);
         return ware == null || SelectedStation == null
             ? ProductionCatalogRole.Resource
@@ -1873,6 +1966,10 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         long Population,
         double? SavegameTimeSeconds,
         IReadOnlyDictionary<string, StationTransportOfferDirections> Offers);
+
+    private sealed record TransportNetworkCalculation(
+        IReadOnlyList<StationTransportStationSnapshot> Stations,
+        StationTransportNetwork Network);
 
     private IReadOnlyList<CapacityContributionSlice> CalculateCapacityContributions(
         StationPlanningStationItemViewModel item)

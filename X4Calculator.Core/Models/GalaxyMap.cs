@@ -105,8 +105,9 @@ public class SectorInfo
     public int SunlightPercent => (int)Math.Round(SunlightFactor * 100, MidpointRounding.AwayFromZero);
 
     /// <summary>
-    /// 本扇区在 mapdefaults.xml 中通过 worlds 引用到的星体最大人口总和；
-    /// world@factor 会参与折算。未声明 worlds 时为 0。
+    /// 本扇区通过 worlds 引用到的星体人口总和；未导入存档时来自 mapdefaults.xml 的
+    /// maxpopulation，导入后对应星体可由地表改造当前人口覆盖。world@factor 会参与折算。
+    /// 未声明 worlds 时为 0。
     /// </summary>
     public long Population { get; set; }
 

@@ -17,7 +17,6 @@ public sealed class StationPlanningStationItemViewModel : ViewModelBase
     private bool _isDeletePending;
     private bool _fillWorkforceCapacity;
     private bool _skipWorkforceGrowth;
-    private bool _useTeladianiumMaterials;
     private bool _hasMapPlacement;
 
     public StationPlanningStationItemViewModel(
@@ -149,12 +148,6 @@ public sealed class StationPlanningStationItemViewModel : ViewModelBase
     {
         get => _preferredRace;
         set => SetProperty(ref _preferredRace, NormalizePreferredRace(value));
-    }
-
-    public bool UseTeladianiumMaterials
-    {
-        get => _useTeladianiumMaterials;
-        set => SetProperty(ref _useTeladianiumMaterials, value);
     }
 
     public string StationDuty

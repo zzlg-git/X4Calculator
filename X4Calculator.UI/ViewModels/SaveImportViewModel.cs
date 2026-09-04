@@ -16,6 +16,8 @@ public sealed class SaveImportViewModel : ViewModelBase
     private readonly Action<string>? _reportStatus;
     private readonly TimeProvider _timeProvider;
     private CancellationTokenSource? _importCancellation;
+    private long _importGeneration;
+    private string? _pendingImportPath;
     private bool _isEntryPage = true;
     private bool _isDefaultPage;
     private bool _isResultPage;
@@ -84,6 +86,7 @@ public sealed class SaveImportViewModel : ViewModelBase
     public string StatusMessage { get => _statusMessage; private set => SetProperty(ref _statusMessage, value); }
     public string ImportedFileName { get => _importedFileName; private set => SetProperty(ref _importedFileName, value); }
     public int ImportedStationCount { get => _importedStationCount; private set => SetProperty(ref _importedStationCount, value); }
+    public bool HasPendingImport => !string.IsNullOrWhiteSpace(_pendingImportPath);
 
     public void ShowDefaultSaves()
     {
@@ -103,13 +106,22 @@ public sealed class SaveImportViewModel : ViewModelBase
     {
         if (!_isReady())
         {
-            StatusMessage = "请等待游戏数据加载完成后再导入存档";
+            InvalidateCurrentImport();
+            _pendingImportPath = path;
+            ImportSucceeded = false;
+            ImportedFileName = Path.GetFileName(path);
+            ImportedStationCount = 0;
+            StatusMessage = "已选择存档，游戏数据加载完成后将自动导入";
+            _reportStatus?.Invoke(StatusMessage);
             ShowPage(entry: false, defaults: false, result: true);
             return;
         }
 
-        _importCancellation?.Dispose();
-        _importCancellation = new CancellationTokenSource();
+        _pendingImportPath = null;
+        InvalidateCurrentImport();
+        var generation = _importGeneration;
+        var cancellation = new CancellationTokenSource();
+        _importCancellation = cancellation;
         ImportSucceeded = false;
         IsImporting = true;
         ImportedFileName = Path.GetFileName(path);
@@ -121,7 +133,9 @@ public sealed class SaveImportViewModel : ViewModelBase
 
         try
         {
-            var result = await _parseSavegame(path, _importCancellation.Token);
+            var result = await _parseSavegame(path, cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
+            if (generation != _importGeneration) return;
             _applySavegame(result);
             var elapsed = _timeProvider.GetElapsedTime(importStartedAt);
             ImportedStationCount = result.Stations.Count;
@@ -129,20 +143,61 @@ public sealed class SaveImportViewModel : ViewModelBase
             StatusMessage = $"导入完成！用时{elapsed.TotalSeconds:F1}秒找到{result.Stations.Count}个玩家空间站！";
             _reportStatus?.Invoke(StatusMessage);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
+            if (generation != _importGeneration) return;
             StatusMessage = "已取消导入";
             _reportStatus?.Invoke(StatusMessage);
         }
         catch (Exception ex)
         {
+            if (generation != _importGeneration) return;
             StatusMessage = $"导入失败：{ex.Message}";
             _reportStatus?.Invoke(StatusMessage);
         }
         finally
         {
-            IsImporting = false;
+            if (generation == _importGeneration)
+            {
+                IsImporting = false;
+                if (ReferenceEquals(_importCancellation, cancellation))
+                    _importCancellation = null;
+            }
+            cancellation.Dispose();
         }
+    }
+
+    public async Task OnDataReadyAsync()
+    {
+        var pendingPath = _pendingImportPath;
+        _pendingImportPath = null;
+        if (!string.IsNullOrWhiteSpace(pendingPath))
+        {
+            await ImportAsync(pendingPath);
+            return;
+        }
+
+        if (IsDefaultPage) ShowDefaultSaves();
+    }
+
+    public void ResetForGameDataChange()
+    {
+        InvalidateCurrentImport();
+        _pendingImportPath = null;
+        _applySavegame(SavegameImportResult.Empty);
+        IsImporting = false;
+        ImportSucceeded = false;
+        ImportedStationCount = 0;
+        ImportedFileName = string.Empty;
+        StatusMessage = string.Empty;
+        ShowEntryPage();
+    }
+
+    private void InvalidateCurrentImport()
+    {
+        _importGeneration++;
+        _importCancellation?.Cancel();
+        _importCancellation = null;
     }
 
     private Task ImportSelectedAsync(object? value) => value is SavegameFileInfo save
@@ -155,6 +210,17 @@ public sealed class SaveImportViewModel : ViewModelBase
         {
             StatusMessage = "正在取消导入…";
             _importCancellation?.Cancel();
+            return;
+        }
+
+        if (HasPendingImport)
+        {
+            _pendingImportPath = null;
+            ImportedStationCount = 0;
+            ImportedFileName = string.Empty;
+            StatusMessage = "已取消导入";
+            _reportStatus?.Invoke(StatusMessage);
+            ShowEntryPage();
             return;
         }
 

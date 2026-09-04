@@ -1,6 +1,8 @@
 namespace X4Calculator.UI.Views;
 public partial class StationPlanningView : System.Windows.Controls.UserControl
 {
+    private static readonly object ModuleCountEnterCommitMarker = new();
+
     public StationPlanningView() => InitializeComponent();
 
     private void IntegerTextBox_OnPreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
@@ -33,6 +35,31 @@ public partial class StationPlanningView : System.Windows.Controls.UserControl
         var binding = textBox.GetBindingExpression(System.Windows.Controls.TextBox.TextProperty);
         binding?.UpdateSource();
         binding?.UpdateTarget();
+    }
+
+    private void ModuleCountTextBox_OnLostFocus(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.TextBox textBox) return;
+        if (ReferenceEquals(textBox.Tag, ModuleCountEnterCommitMarker))
+        {
+            textBox.Tag = null;
+            return;
+        }
+        textBox.GetBindingExpression(System.Windows.Controls.TextBox.TextProperty)?.UpdateSource();
+    }
+
+    private void ModuleCountTextBox_OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter ||
+            sender is not System.Windows.Controls.TextBox textBox)
+            return;
+
+        textBox.Tag = ModuleCountEnterCommitMarker;
+        textBox.GetBindingExpression(System.Windows.Controls.TextBox.TextProperty)?.UpdateSource();
+        e.Handled = true;
+        if (textBox.IsKeyboardFocusWithin && !textBox.MoveFocus(new System.Windows.Input.TraversalRequest(
+                System.Windows.Input.FocusNavigationDirection.Next)))
+            System.Windows.Input.Keyboard.ClearFocus();
     }
 
     private void ModuleCountTextBox_OnPreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)

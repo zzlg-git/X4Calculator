@@ -60,7 +60,12 @@ public sealed class SavegameParser
         var elementNames = new string?[256];
         var galaxyDepth = -1;
         var blueprintsDepth = -1;
+        var terraformingDepth = -1;
+        var terraformingStatsDepth = -1;
+        string? terraformingClusterId = null;
+        string? terraformingWorldPart = null;
         var playerBlueprintWareIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var terraformingPopulations = new List<TerraformingPopulation>();
         double? gameTimeSeconds = null;
 
         using var stream = SavegameFile.OpenRead(saveFilePath);
@@ -91,6 +96,33 @@ public sealed class SavegameParser
                          reader.GetAttribute("ware") is { Length: > 0 } blueprintWareId)
                 {
                     playerBlueprintWareIds.Add(blueprintWareId);
+                }
+
+                if (reader.Name == "terraforming")
+                {
+                    var cluster = FindAncestor(components, reader.Depth, "cluster");
+                    var worldPart = reader.GetAttribute("part");
+                    if (cluster != null && !string.IsNullOrWhiteSpace(cluster.Macro) &&
+                        !string.IsNullOrWhiteSpace(worldPart))
+                    {
+                        terraformingDepth = reader.Depth;
+                        terraformingClusterId = cluster.Macro;
+                        terraformingWorldPart = worldPart;
+                    }
+                }
+                else if (terraformingDepth >= 0 && reader.Name == "stats" &&
+                         reader.Depth == terraformingDepth + 1)
+                {
+                    terraformingStatsDepth = reader.Depth;
+                }
+                else if (terraformingStatsDepth >= 0 && reader.Name == "stat" &&
+                         reader.Depth == terraformingStatsDepth + 1 &&
+                         string.Equals(reader.GetAttribute("id"), "population", StringComparison.OrdinalIgnoreCase) &&
+                         long.TryParse(reader.GetAttribute("value"), NumberStyles.Integer,
+                             CultureInfo.InvariantCulture, out var population) && population >= 0)
+                {
+                    terraformingPopulations.Add(new TerraformingPopulation(
+                        terraformingClusterId!, terraformingWorldPart!, population));
                 }
 
                 if (reader.Name == "game" && reader.Depth > 0 && elementNames[reader.Depth - 1] == "info" &&
@@ -134,12 +166,31 @@ public sealed class SavegameParser
                     if (component != null) component.Offset = ReadPosition(reader);
                 }
 
-                if (reader.IsEmptyElement) elementNames[reader.Depth] = null;
+                if (reader.IsEmptyElement)
+                {
+                    if (reader.Depth == terraformingStatsDepth)
+                        terraformingStatsDepth = -1;
+                    if (reader.Depth == terraformingDepth)
+                    {
+                        terraformingDepth = -1;
+                        terraformingClusterId = null;
+                        terraformingWorldPart = null;
+                    }
+                    elementNames[reader.Depth] = null;
+                }
             }
             else if (reader.NodeType == XmlNodeType.EndElement)
             {
                 if (reader.Name == "blueprints" && reader.Depth == blueprintsDepth)
                     blueprintsDepth = -1;
+                if (reader.Name == "stats" && reader.Depth == terraformingStatsDepth)
+                    terraformingStatsDepth = -1;
+                if (reader.Name == "terraforming" && reader.Depth == terraformingDepth)
+                {
+                    terraformingDepth = -1;
+                    terraformingClusterId = null;
+                    terraformingWorldPart = null;
+                }
                 if (reader.Name == "component")
                 {
                     if (reader.Depth == galaxyDepth) break;
@@ -168,7 +219,8 @@ public sealed class SavegameParser
             gameTimeSeconds,
             playerBlueprintWareIds,
             supplemental.NpcStations,
-            supplemental.MapObjects);
+            supplemental.MapObjects,
+            terraformingPopulations);
     }
 
     private void SynchronizeModulesWithConstructionSequence(Station station)

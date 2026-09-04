@@ -33,7 +33,10 @@ public sealed record StationTransportStationSnapshot(
         OfferDirections.GetValueOrDefault(wareId);
 }
 
-/// <summary>一条唯一的 source → target + ware 运输候选边。</summary>
+/// <summary>
+/// 一条唯一的 source → target + ware 运输候选边。
+/// SourceCanInitiate / TargetCanInitiate 分别表示哪一端的管理员范围足以发起这次运输。
+/// </summary>
 public sealed record StationTransportRoute(
     string WareId,
     string SourceStationId,
@@ -42,7 +45,9 @@ public sealed record StationTransportRoute(
     string TargetStationId,
     string TargetStationName,
     StationTransportStationDuty TargetDuty,
-    int JumpCount)
+    int JumpCount,
+    bool SourceCanInitiate,
+    bool TargetCanInitiate)
 {
     /// <summary>供地图和距离展示复用的精确扇区路径。</summary>
     public SectorRoute? Path { get; init; }
@@ -80,7 +85,7 @@ public sealed class StationTransportNetworkCalculator
 
         var routes = new List<StationTransportRoute>();
         var seen = new HashSet<RouteKey>();
-        var reachableRoutes = new Dictionary<ReachabilityKey, SectorRoute?>();
+        var sectorRoutes = new Dictionary<SectorRouteKey, SectorRoute?>();
 
         for (var leftIndex = 0; leftIndex < stationList.Length; leftIndex++)
         {
@@ -103,8 +108,8 @@ public sealed class StationTransportNetworkCalculator
                 foreach (var wareId in wareIds)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    TryAddRoute(left, right, wareId, sectorGraph, reachableRoutes, seen, routes);
-                    TryAddRoute(right, left, wareId, sectorGraph, reachableRoutes, seen, routes);
+                    TryAddRoute(left, right, wareId, sectorGraph, sectorRoutes, seen, routes);
+                    TryAddRoute(right, left, wareId, sectorGraph, sectorRoutes, seen, routes);
                 }
             }
         }
@@ -121,23 +126,24 @@ public sealed class StationTransportNetworkCalculator
         StationTransportStationSnapshot target,
         string wareId,
         SectorGraph sectorGraph,
-        IDictionary<ReachabilityKey, SectorRoute?> reachableRoutes,
+        IDictionary<SectorRouteKey, SectorRoute?> sectorRoutes,
         ISet<RouteKey> seen,
         ICollection<StationTransportRoute> routes)
     {
         if (!CanTransport(source, target, wareId)) return;
 
-        var reachabilityKey = new ReachabilityKey(
-            source.SectorId, target.SectorId, Math.Max(0, source.ManagerStars));
-        if (!reachableRoutes.TryGetValue(reachabilityKey, out var path))
+        var sectorRouteKey = new SectorRouteKey(source.SectorId, target.SectorId);
+        if (!sectorRoutes.TryGetValue(sectorRouteKey, out var path))
         {
             var route = sectorGraph.FindRouteById(source.SectorId, target.SectorId);
-            path = route is { IsReachable: true } && route.JumpCount <= reachabilityKey.ManagerStars
-                ? route
-                : null;
-            reachableRoutes[reachabilityKey] = path;
+            path = route is { IsReachable: true } ? route : null;
+            sectorRoutes[sectorRouteKey] = path;
         }
         if (path == null) return;
+
+        var sourceCanInitiate = path.JumpCount <= Math.Max(0, source.ManagerStars);
+        var targetCanInitiate = path.JumpCount <= Math.Max(0, target.ManagerStars);
+        if (!sourceCanInitiate && !targetCanInitiate) return;
 
         var key = new RouteKey(source.StationId, target.StationId, wareId);
         if (!seen.Add(key)) return;
@@ -150,7 +156,9 @@ public sealed class StationTransportNetworkCalculator
             target.StationId,
             target.StationName,
             target.Duty,
-            path.JumpCount)
+            path.JumpCount,
+            sourceCanInitiate,
+            targetCanInitiate)
         {
             Path = path
         });
@@ -198,5 +206,5 @@ public sealed class StationTransportNetworkCalculator
     }
 
     private readonly record struct RouteKey(string SourceStationId, string TargetStationId, string WareId);
-    private readonly record struct ReachabilityKey(string SourceSectorId, string TargetSectorId, int ManagerStars);
+    private readonly record struct SectorRouteKey(string SourceSectorId, string TargetSectorId);
 }

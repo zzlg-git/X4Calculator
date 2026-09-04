@@ -17,10 +17,12 @@ public sealed record StationTransportStorageStatisticItemViewModel(
     string StorageName,
     string TransportTimeText,
     string ThroughputText,
-    bool HasConfiguration)
+    bool HasConfiguration,
+    string RequiredShipsText = "—")
 {
     public string TransportTimeDisplayText => $"{StorageName}：{TransportTimeText}";
     public string ThroughputDisplayText => $"{StorageName}：{ThroughputText}";
+    public string RequiredShipsDisplayText => $"{StorageName}：{RequiredShipsText}";
 }
 
 /// <summary>向星图提供后台运输网络的只读、已勾选路线投影。</summary>
@@ -36,7 +38,8 @@ public sealed record StationTransportOptimizationLink(
     TransportStorageType StorageType,
     SectorRoute Route,
     Vec3 SourceSectorPosition,
-    Vec3 TargetSectorPosition);
+    Vec3 TargetSectorPosition,
+    double FlowM3PerSecond = 1d);
 
 /// <summary>向舰船排序页提供后台运输网络的只读优化输入。</summary>
 public interface IStationTransportOptimizationSource

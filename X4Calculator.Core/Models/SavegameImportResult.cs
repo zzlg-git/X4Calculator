@@ -3,6 +3,9 @@ namespace X4Calculator.Core.Models;
 /// <summary>存档中某个扇区的实时控制权。</summary>
 public sealed record SectorOwnership(string SectorId, string Owner, bool IsContested);
 
+/// <summary>存档中某个 Cluster 星体的地表改造当前人口。</summary>
+public sealed record TerraformingPopulation(string ClusterId, string WorldPart, long Population);
+
 /// <summary>一次存档导入产生的星图与空间站数据。</summary>
 public sealed class SavegameImportResult
 {
@@ -14,7 +17,8 @@ public sealed class SavegameImportResult
         double? gameTimeSeconds = null,
         IEnumerable<string>? playerBlueprintWareIds = null,
         IReadOnlyList<NpcStation>? npcStations = null,
-        IReadOnlyList<SaveMapObject>? mapObjects = null)
+        IReadOnlyList<SaveMapObject>? mapObjects = null,
+        IReadOnlyList<TerraformingPopulation>? terraformingPopulations = null)
     {
         Stations = stations;
         SectorOwnerships = sectorOwnerships;
@@ -23,6 +27,7 @@ public sealed class SavegameImportResult
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         NpcStations = npcStations ?? [];
         MapObjects = mapObjects ?? [];
+        TerraformingPopulations = terraformingPopulations ?? [];
     }
 
     public IReadOnlyList<Station> Stations { get; }
@@ -41,4 +46,10 @@ public sealed class SavegameImportResult
 
     /// <summary>无主舰船、数据保险库和妖王数据保险库的轻量星图快照。</summary>
     public IReadOnlyList<SaveMapObject> MapObjects { get; }
+
+    /// <summary>
+    /// Cluster 的 terraforming/stats/stat[@id="population"] 当前值；
+    /// WorldPart 对应 terraforming@part，由星图按 Sector 的 world@factor 投影。
+    /// </summary>
+    public IReadOnlyList<TerraformingPopulation> TerraformingPopulations { get; }
 }

@@ -164,9 +164,10 @@
                                Visibility="{Binding HasWorkforceBonus, Converter={StaticResource BoolToVisibilityConverter}}" AutomationProperties.AutomationId="station-planning.workforce-bonus"/>
                     <StackPanel Grid.Column="4" Orientation="Horizontal" Margin="12 0" VerticalAlignment="Center">
                         <TextBlock Text="×" Margin="0 0 5 0" FontWeight="SemiBold" Foreground="{StaticResource ThroughputBlueBrush}" VerticalAlignment="Center"/>
-                        <TextBox Text="{Binding ModuleCountText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="56" Padding="5 1"
+                        <TextBox Text="{Binding ModuleCountText, Mode=TwoWay, UpdateSourceTrigger=Explicit}" Width="56" Padding="5 1"
                                  HorizontalContentAlignment="Center" PreviewTextInput="IntegerTextBox_OnPreviewTextInput"
-                                 DataObject.Pasting="IntegerTextBox_OnPasting" LostFocus="IntegerTextBox_OnLostFocus"
+                                 DataObject.Pasting="IntegerTextBox_OnPasting" LostFocus="ModuleCountTextBox_OnLostFocus"
+                                 PreviewKeyDown="ModuleCountTextBox_OnPreviewKeyDown"
                                  PreviewMouseWheel="ModuleCountTextBox_OnPreviewMouseWheel"
                                  AutomationProperties.AutomationId="station-planning.module-count"
                                  ToolTip="输入模块总数；悬停时可用滚轮增减"/>
@@ -380,8 +381,13 @@
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Border x:Name="HeaderSeparator" BorderBrush="{StaticResource Surface1Brush}" BorderThickness="0 0 0 1" Padding="0 0 0 14">
                     <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="14"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                        <Grid Grid.Row="0"><Grid.ColumnDefinitions><ColumnDefinition Width="495"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="14"/><ColumnDefinition Width="280"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="14"/><ColumnDefinition Width="150"/><ColumnDefinition Width="14"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid Grid.Row="0"><Grid.ColumnDefinitions><ColumnDefinition Width="495"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="14"/><ColumnDefinition Width="280"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="14"/><ColumnDefinition Width="150"/><ColumnDefinition Width="14"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="名称" Foreground="{StaticResource TextSecondaryBrush}"/>
@@ -399,43 +405,50 @@
                                     AutomationProperties.AutomationId="station-planning.choose-placement"/>
                             <StackPanel Grid.Column="6"><TextBlock Text="空间站职责" Foreground="{StaticResource TextSecondaryBrush}"/><ComboBox ItemsSource="{Binding StationDutyOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding StationDuty, Mode=TwoWay}" Style="{StaticResource StationHeaderComboBox}" AutomationProperties.AutomationId="station-planning.duty"/></StackPanel>
                             <Button Grid.Column="8" Content="{Binding StorageEconomyToggleText}" Command="{Binding ToggleStorageEconomyViewCommand}" Height="35" Margin="0 18 0 0"
-                                    Padding="14 6" HorizontalContentAlignment="Center" VerticalAlignment="Bottom"
-                                    AutomationProperties.AutomationId="station-planning.toggle-storage-economy"/>
+                                     Padding="14 6" HorizontalContentAlignment="Center" VerticalAlignment="Bottom"
+                                     AutomationProperties.AutomationId="station-planning.toggle-storage-economy"/>
                         </Grid>
-                        <Grid Grid.Row="1" Margin="0 10 0 0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid Grid.Row="1" Margin="0 10 0 0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0"><TextBlock Text="光伏效率" Foreground="{StaticResource TextSecondaryBrush}"/><StackPanel Orientation="Horizontal" Height="35"><TextBox Text="{Binding SolarEfficiencyPercent, UpdateSourceTrigger=LostFocus}" Style="{StaticResource StationHeaderTextBox}" Width="78" PreviewTextInput="IntegerTextBox_OnPreviewTextInput" DataObject.Pasting="IntegerTextBox_OnPasting" LostFocus="IntegerTextBox_OnLostFocus" AutomationProperties.AutomationId="station-planning.solar-efficiency" ToolTip="允许范围由星图数据决定"/><TextBlock Text=" %" Style="{StaticResource StationHeaderValueText}" Foreground="{StaticResource TextPrimaryBrush}"/></StackPanel></StackPanel>
                             <StackPanel Grid.Column="1"><TextBlock Text="星区人口" Foreground="{StaticResource TextSecondaryBrush}"/><Grid Height="35"><TextBlock Text="{Binding SectorPopulationBonusText}" Style="{StaticResource StationHeaderValueText}" Foreground="{StaticResource AccentGreenBrush}" AutomationProperties.AutomationId="station-planning.population-bonus"/></Grid></StackPanel>
-                            <Grid Grid.Column="2" Grid.ColumnSpan="2" Margin="0 0 10 0">
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="运输时间" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                                    <ComboBox Width="92" Margin="8 0 0 0" ItemsSource="{Binding TransportShipSizeOptions}"
-                                              DisplayMemberPath="DisplayName" SelectedValuePath="Value"
-                                              SelectedValue="{Binding SelectedStationInfoShipSize, Mode=TwoWay}"
-                                              Style="{StaticResource DarkComboBox}"
-                                              Visibility="{Binding IsStationTransportShipSizeFilterVisible, Converter={StaticResource BoolToVisibilityConverter}}"
-                                              AutomationProperties.AutomationId="station-planning.transport-ship-size-filter"/>
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="单位吞吐量" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                                <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding StationTransportInfoErrorText}"
-                                           Foreground="{StaticResource AccentRedBrush}" TextWrapping="Wrap" Margin="0 6 0 0"
-                                           Visibility="{Binding HasStationTransportInfoError, Converter={StaticResource BoolToVisibilityConverter}}"
-                                           AutomationProperties.AutomationId="station-planning.transport-info-error"/>
-                                <ItemsControl Grid.Row="1" ItemsSource="{Binding StationTransportStatistics}" Margin="0 4 8 0"
-                                              Visibility="{Binding HasStationTransportInfoError, Converter={StaticResource InverseBoolToVisibilityConverter}}"
-                                              AutomationProperties.AutomationId="station-planning.transport-time">
-                                    <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding TransportTimeDisplayText}" Foreground="{StaticResource TextPrimaryBrush}" Margin="0 1"/></DataTemplate></ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <ItemsControl Grid.Row="1" Grid.Column="1" ItemsSource="{Binding StationTransportStatistics}" Margin="0 4 0 0"
-                                              Visibility="{Binding HasStationTransportInfoError, Converter={StaticResource InverseBoolToVisibilityConverter}}"
-                                              AutomationProperties.AutomationId="station-planning.throughput">
-                                    <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding ThroughputDisplayText}" Foreground="{StaticResource ThroughputBlueBrush}" Margin="0 1"/></DataTemplate></ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </Grid>
-                            <StackPanel Grid.Column="4"><TextBlock Text="偏好种族" Foreground="{StaticResource TextSecondaryBrush}"/><ComboBox Width="100" HorizontalAlignment="Left" ItemsSource="{Binding PreferredRaceOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding PreferredRace, Mode=TwoWay}" Style="{StaticResource StationHeaderComboBox}" AutomationProperties.AutomationId="station-planning.preferred-race"/></StackPanel>
-                            <StackPanel Grid.Column="5"><TextBlock Text="偏好建造方式" Foreground="{StaticResource TextSecondaryBrush}"/><ComboBox Width="90" HorizontalAlignment="Left" ItemsSource="{Binding PreferredBuildMethodOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding PreferredBuildMethod, Mode=TwoWay}" Style="{StaticResource StationHeaderComboBox}" AutomationProperties.AutomationId="station-planning.preferred-build-method"/></StackPanel>
-                            <StackPanel Grid.Column="6"><TextBlock Text="管理员星级" Foreground="{StaticResource TextSecondaryBrush}"/><ComboBox Width="90" HorizontalAlignment="Left" ItemsSource="{Binding ManagerStarOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ManagerStars, Mode=TwoWay}" Style="{StaticResource StationHeaderComboBox}" AutomationProperties.AutomationId="station-planning.manager-stars"/></StackPanel>
+                            <StackPanel Grid.Column="2"><TextBlock Text="偏好种族" Foreground="{StaticResource TextSecondaryBrush}"/><ComboBox Width="100" HorizontalAlignment="Left" ItemsSource="{Binding PreferredRaceOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding PreferredRace, Mode=TwoWay}" Style="{StaticResource StationHeaderComboBox}" AutomationProperties.AutomationId="station-planning.preferred-race"/></StackPanel>
+                            <StackPanel Grid.Column="3"><TextBlock Text="偏好建造方式" Foreground="{StaticResource TextSecondaryBrush}"/><ComboBox Width="90" HorizontalAlignment="Left" ItemsSource="{Binding PreferredBuildMethodOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding PreferredBuildMethod, Mode=TwoWay}" Style="{StaticResource StationHeaderComboBox}" AutomationProperties.AutomationId="station-planning.preferred-build-method"/></StackPanel>
+                            <StackPanel Grid.Column="4"><TextBlock Text="管理员星级" Foreground="{StaticResource TextSecondaryBrush}"/><ComboBox Width="90" HorizontalAlignment="Left" ItemsSource="{Binding ManagerStarOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Value" SelectedValue="{Binding ManagerStars, Mode=TwoWay}" Style="{StaticResource StationHeaderComboBox}" AutomationProperties.AutomationId="station-planning.manager-stars"/></StackPanel>
+                        </Grid>
+                        <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                              AutomationProperties.AutomationId="station-planning.transport-statistics">
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="运输时间" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                <ComboBox Width="92" Margin="8 0 0 0" ItemsSource="{Binding TransportShipSizeOptions}"
+                                          DisplayMemberPath="DisplayName" SelectedValuePath="Value"
+                                          SelectedValue="{Binding SelectedStationInfoShipSize, Mode=TwoWay}"
+                                          Style="{StaticResource DarkComboBox}"
+                                          Visibility="{Binding IsStationTransportShipSizeFilterVisible, Converter={StaticResource BoolToVisibilityConverter}}"
+                                          AutomationProperties.AutomationId="station-planning.transport-ship-size-filter"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="单位吞吐量" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="4" Text="所需货船" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="1" Grid.ColumnSpan="5" Text="{Binding StationTransportInfoErrorText}"
+                                       Foreground="{StaticResource AccentRedBrush}" TextWrapping="Wrap" Margin="0 6 0 0"
+                                       Visibility="{Binding HasStationTransportInfoError, Converter={StaticResource BoolToVisibilityConverter}}"
+                                       AutomationProperties.AutomationId="station-planning.transport-info-error"/>
+                            <ItemsControl Grid.Row="1" ItemsSource="{Binding StationTransportStatistics}" Margin="0 4 8 0"
+                                          Visibility="{Binding HasStationTransportInfoError, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                          AutomationProperties.AutomationId="station-planning.transport-time">
+                                <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding TransportTimeDisplayText}" Foreground="{StaticResource TextPrimaryBrush}" Margin="0 1"/></DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <ItemsControl Grid.Row="1" Grid.Column="2" ItemsSource="{Binding StationTransportStatistics}" Margin="0 4 0 0"
+                                          Visibility="{Binding HasStationTransportInfoError, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                          AutomationProperties.AutomationId="station-planning.throughput">
+                                <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding ThroughputDisplayText}" Foreground="{StaticResource ThroughputBlueBrush}" Margin="0 1"/></DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <ItemsControl Grid.Row="1" Grid.Column="4" ItemsSource="{Binding StationTransportStatistics}" Margin="0 4 0 0"
+                                          Visibility="{Binding HasStationTransportInfoError, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                          AutomationProperties.AutomationId="station-planning.required-ships">
+                                <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding RequiredShipsDisplayText}" Foreground="{StaticResource AccentGreenBrush}" Margin="0 1"/></DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </Grid>
                     </Grid>
                 </Border>
@@ -470,11 +483,8 @@
                                         Visibility="{Binding CanAutoAddIntermediateProducts, Converter={StaticResource BoolToVisibilityConverter}}"
                                         AutomationProperties.AutomationId="station-planning.auto-add-options">
                                 <Button Content="自动添加中间产品" Command="{Binding AutoAddIntermediateProductsCommand}"
-                                        Margin="0 0 8 0" Padding="8 6" HorizontalContentAlignment="Center"
+                                        Padding="8 6" HorizontalContentAlignment="Center"
                                         AutomationProperties.AutomationId="station-planning.auto-add-intermediates"/>
-                                <CheckBox Content="使用T材料" IsChecked="{Binding UseTeladianiumMaterials, Mode=TwoWay}"
-                                          Style="{StaticResource DarkCheckBox}" Foreground="{StaticResource TextPrimaryBrush}"
-                                          VerticalAlignment="Center" AutomationProperties.AutomationId="station-planning.use-t-materials"/>
                             </StackPanel>
                             <Button Content="瞬间建造" Command="{Binding InstantBuildCommand}" Padding="8 6"
                                     HorizontalContentAlignment="Center" VerticalAlignment="Center" HorizontalAlignment="Right"
@@ -585,7 +595,7 @@
                 <Grid Grid.Row="1" Margin="0 14 0 0" Visibility="{Binding IsStorageEconomyView, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <Grid Grid.Column="0">
-                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                         <Grid Margin="0 0 0 8">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="112"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <TextBlock Text="仓储视图" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}"
@@ -597,7 +607,11 @@
                                     FontSize="13" Padding="6 5"
                                     AutomationProperties.AutomationId="station-planning.add-trade-ware"/>
                         </Grid>
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AutomationProperties.AutomationId="station-planning.storage-list">
+                        <TextBlock Grid.Row="1" Text="{Binding StorageFillDrainTimeText}" Margin="0 0 0 8"
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="15" VerticalAlignment="Center"
+                                   Visibility="{Binding IsStorageFillDrainTimeVisible, Converter={StaticResource BoolToVisibilityConverter}}"
+                                   AutomationProperties.AutomationId="station-planning.storage-fill-drain-time"/>
+                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AutomationProperties.AutomationId="station-planning.storage-list">
                             <ItemsControl ItemsSource="{Binding StorageWareItems}" ItemTemplate="{StaticResource StationWareTemplate}"/>
                         </ScrollViewer>
                     </Grid>

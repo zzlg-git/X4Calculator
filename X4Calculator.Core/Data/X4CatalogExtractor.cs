@@ -13,22 +13,48 @@ public enum X4ContentKind
     Mod
 }
 
+public enum X4DataFileSourceKind
+{
+    BaseCatalog,
+    ExtensionCatalog,
+    SubstitutionCatalog,
+    LooseFile
+}
+
+public sealed record X4ContentDependency(string Id, bool Optional);
+
 public sealed record X4ContentPackage(
     string Id,
     string DisplayName,
     string DirectoryPath,
     X4ContentKind Kind,
-    IReadOnlyList<string> CatalogPaths);
+    IReadOnlyList<string> CatalogPaths,
+    string ContentId = "",
+    string Version = "",
+    IReadOnlyList<X4ContentDependency>? Dependencies = null,
+    bool HasLooseFiles = false)
+{
+    public string EffectiveContentId => string.IsNullOrWhiteSpace(ContentId) ? Id : ContentId;
+    public IReadOnlyList<X4ContentDependency> EffectiveDependencies => Dependencies ?? [];
+}
 
 public sealed record X4CatalogEntry(
     string RelativePath,
+    string PackageId,
+    string PackageRelativePath,
+    X4DataFileSourceKind SourceKind,
     string CatalogPath,
     string DataPath,
     long Offset,
     long Size,
     string ExpectedMd5);
 
-public sealed record X4LooseFile(string RelativePath, string SourcePath, long Size);
+public sealed record X4LooseFile(
+    string RelativePath,
+    string PackageId,
+    string PackageRelativePath,
+    string SourcePath,
+    long Size);
 
 public sealed record X4ExtractionPlan(
     string GameDirectory,
@@ -49,9 +75,27 @@ public sealed record X4DataManifest(
     DateTimeOffset CompletedAtUtc,
     IReadOnlyList<string> PackageIds,
     int FileCount,
-    long TotalBytes);
+    long TotalBytes,
+    IReadOnlyList<X4ManifestPackage>? Packages = null,
+    IReadOnlyList<X4ManifestFile>? Files = null);
 
-/// <summary>扫描并解包 X4 的 CAT/DAT；只产生 X4Calculator 需要的 XML 数据。</summary>
+public sealed record X4ManifestPackage(
+    string FolderId,
+    string ContentId,
+    string DisplayName,
+    string Version,
+    X4ContentKind Kind,
+    IReadOnlyList<X4ContentDependency> Dependencies);
+
+public sealed record X4ManifestFile(
+    string PackageId,
+    string PackageRelativePath,
+    string StoredRelativePath,
+    X4DataFileSourceKind SourceKind,
+    long Size,
+    string? Md5);
+
+/// <summary>扫描 X4 内容包并导出 CAT/DAT 或松散 XML；只保留计算器需要的数据类型。</summary>
 public sealed class X4CatalogExtractor
 {
     public const string BaseGamePackageId = "base-game";
@@ -77,7 +121,9 @@ public sealed class X4CatalogExtractor
             "X4: Foundations 原版游戏",
             normalizedGameDirectory,
             X4ContentKind.BaseGame,
-            baseCatalogs));
+            baseCatalogs,
+            BaseGamePackageId,
+            HasLooseFiles: File.Exists(Path.Combine(normalizedGameDirectory, "version.dat"))));
 
         var extensionsDirectory = Path.Combine(normalizedGameDirectory, "extensions");
         if (!Directory.Exists(extensionsDirectory)) return packages;
@@ -86,7 +132,9 @@ public sealed class X4CatalogExtractor
                      .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
         {
             var catalogs = FindCatalogs(extensionDirectory);
-            if (catalogs.Count == 0) continue;
+            var metadata = ReadExtensionMetadata(extensionDirectory);
+            var hasLooseFiles = HasLooseDataFiles(extensionDirectory, X4ContentKind.Mod);
+            if (catalogs.Count == 0 && !hasLooseFiles) continue;
 
             var id = Path.GetFileName(extensionDirectory);
             var kind = id.StartsWith("ego_dlc_", StringComparison.OrdinalIgnoreCase)
@@ -94,10 +142,14 @@ public sealed class X4CatalogExtractor
                 : X4ContentKind.Mod;
             packages.Add(new X4ContentPackage(
                 id,
-                ReadExtensionDisplayName(extensionDirectory, id),
+                metadata.DisplayName ?? id,
                 extensionDirectory,
                 kind,
-                catalogs));
+                catalogs,
+                metadata.ContentId ?? id,
+                metadata.Version ?? string.Empty,
+                metadata.Dependencies,
+                hasLooseFiles));
         }
 
         return packages;
@@ -110,7 +162,7 @@ public sealed class X4CatalogExtractor
         ArgumentNullException.ThrowIfNull(selectedPackageIds);
         var selectedIds = selectedPackageIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var discoveredPackages = DiscoverContent(gameDirectory);
-        var packages = discoveredPackages
+        var selectedPackages = discoveredPackages
             .Where(package => selectedIds.Contains(package.Id))
             .ToList();
         var unknownIds = selectedIds
@@ -119,10 +171,11 @@ public sealed class X4CatalogExtractor
             .ToList();
         if (unknownIds.Count > 0)
             throw new InvalidOperationException($"选择中包含不存在的内容包：{string.Join("、", unknownIds)}");
-        if (packages.Count == 0)
+        if (selectedPackages.Count == 0)
             throw new InvalidOperationException("没有选择任何可解包的游戏内容。");
-        if (packages.All(package => package.Kind != X4ContentKind.BaseGame))
+        if (selectedPackages.All(package => package.Kind != X4ContentKind.BaseGame))
             throw new InvalidOperationException("解包计划必须包含原版游戏数据。");
+        var packages = OrderPackages(selectedPackages);
 
         var resolvedEntries = new Dictionary<string, X4CatalogEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (var package in packages)
@@ -132,14 +185,23 @@ public sealed class X4CatalogExtractor
                 : $"extensions/{package.Id}/";
 
             foreach (var catalogPath in package.CatalogPaths)
-                MergeCatalog(catalogPath, prefix, resolvedEntries);
+            {
+                var sourceKind = package.Kind == X4ContentKind.BaseGame
+                    ? X4DataFileSourceKind.BaseCatalog
+                    : Path.GetFileName(catalogPath).StartsWith("subst_", StringComparison.OrdinalIgnoreCase)
+                        ? X4DataFileSourceKind.SubstitutionCatalog
+                        : X4DataFileSourceKind.ExtensionCatalog;
+                MergeCatalog(catalogPath, package.Id, prefix, sourceKind, resolvedEntries);
+            }
         }
 
+        var looseFiles = BuildLooseFiles(packages);
+        foreach (var looseFile in looseFiles)
+            resolvedEntries.Remove(looseFile.RelativePath);
         var entries = resolvedEntries.Values
             .Where(entry => entry.RelativePath.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
             .OrderBy(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var looseFiles = BuildLooseFiles(packages);
         return new X4ExtractionPlan(
             Path.GetFullPath(gameDirectory),
             packages,
@@ -173,12 +235,40 @@ public sealed class X4CatalogExtractor
         {
             await ExtractToDirectoryAsync(plan, stagingRoot, progress, cancellationToken);
             GameDataDirectory.EnsureRequiredFiles(stagingRoot);
+            var packageOrder = plan.Packages
+                .Select((package, index) => (package.Id, index))
+                .ToDictionary(item => item.Id, item => item.index, StringComparer.OrdinalIgnoreCase);
+            var manifestFiles = plan.Entries.Select(entry => new X4ManifestFile(
+                    entry.PackageId,
+                    entry.PackageRelativePath,
+                    entry.RelativePath,
+                    entry.SourceKind,
+                    entry.Size,
+                    entry.ExpectedMd5))
+                .Concat(plan.LooseFiles.Select(file => new X4ManifestFile(
+                    file.PackageId,
+                    file.PackageRelativePath,
+                    file.RelativePath,
+                    X4DataFileSourceKind.LooseFile,
+                    file.Size,
+                    null)))
+                .OrderBy(file => packageOrder[file.PackageId])
+                .ThenBy(file => file.PackageRelativePath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
             var manifest = new X4DataManifest(
-                1,
+                2,
                 DateTimeOffset.UtcNow,
                 plan.Packages.Select(package => package.Id).ToList(),
                 plan.Entries.Count + plan.LooseFiles.Count,
-                plan.TotalBytes);
+                plan.TotalBytes,
+                plan.Packages.Select(package => new X4ManifestPackage(
+                    package.Id,
+                    package.EffectiveContentId,
+                    package.DisplayName,
+                    package.Version,
+                    package.Kind,
+                    package.EffectiveDependencies)).ToList(),
+                manifestFiles);
             await File.WriteAllTextAsync(
                 Path.Combine(stagingRoot, GameDataDirectory.ManifestFileName),
                 JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }),
@@ -294,44 +384,174 @@ public sealed class X4CatalogExtractor
         return catalogs;
     }
 
-    private static string ReadExtensionDisplayName(string extensionDirectory, string fallback)
+    private sealed record ExtensionMetadata(
+        string? ContentId,
+        string? DisplayName,
+        string? Version,
+        IReadOnlyList<X4ContentDependency> Dependencies);
+
+    private static ExtensionMetadata ReadExtensionMetadata(string extensionDirectory)
     {
         var contentPath = Path.Combine(extensionDirectory, "content.xml");
-        if (!File.Exists(contentPath)) return fallback;
+        if (!File.Exists(contentPath)) return new(null, null, null, []);
 
         try
         {
-            var name = XDocument.Load(contentPath).Root?.Attribute("name")?.Value?.Trim();
-            return string.IsNullOrWhiteSpace(name) ? fallback : name;
+            var root = XDocument.Load(contentPath).Root;
+            if (root == null) return new(null, null, null, []);
+            var dependencies = root.Elements("dependency")
+                .Select(element => new
+                {
+                    Id = element.Attribute("id")?.Value.Trim(),
+                    Optional = IsTrue(element.Attribute("optional")?.Value)
+                })
+                .Where(item => !string.IsNullOrWhiteSpace(item.Id))
+                .Select(item => new X4ContentDependency(item.Id!, item.Optional))
+                .ToList();
+            return new(
+                NullIfWhiteSpace(root.Attribute("id")?.Value),
+                NullIfWhiteSpace(root.Attribute("name")?.Value),
+                NullIfWhiteSpace(root.Attribute("version")?.Value),
+                dependencies);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
         {
-            return fallback;
+            return new(null, null, null, []);
         }
     }
+
+    private static IReadOnlyList<X4ContentPackage> OrderPackages(
+        IReadOnlyList<X4ContentPackage> selectedPackages)
+    {
+        var basePackage = selectedPackages.Single(package => package.Kind == X4ContentKind.BaseGame);
+        var extensions = selectedPackages
+            .Where(package => package.Kind != X4ContentKind.BaseGame)
+            .ToList();
+        var byIdentity = new Dictionary<string, X4ContentPackage>(StringComparer.OrdinalIgnoreCase);
+        foreach (var package in extensions)
+        {
+            foreach (var identity in new[] { package.Id, package.EffectiveContentId }.Distinct(
+                         StringComparer.OrdinalIgnoreCase))
+            {
+                if (byIdentity.TryGetValue(identity, out var duplicate) && duplicate != package)
+                    throw new InvalidOperationException(
+                        $"内容包标识冲突：{identity} 同时属于 {duplicate.Id} 和 {package.Id}。");
+                byIdentity[identity] = package;
+            }
+        }
+
+        foreach (var package in extensions)
+        {
+            var missing = package.EffectiveDependencies
+                .Where(dependency => !dependency.Optional && !byIdentity.ContainsKey(dependency.Id))
+                .Select(dependency => dependency.Id)
+                .ToList();
+            if (missing.Count > 0)
+                throw new InvalidOperationException(
+                    $"内容包 {package.DisplayName} 缺少已选择的必需依赖：{string.Join("、", missing)}");
+        }
+
+        var discoveryOrder = extensions
+            .Select((package, index) => (package, index))
+            .ToDictionary(item => item.package.Id, item => item.index, StringComparer.OrdinalIgnoreCase);
+        var indegree = extensions.ToDictionary(
+            package => package.Id,
+            _ => 0,
+            StringComparer.OrdinalIgnoreCase);
+        var dependents = extensions.ToDictionary(
+            package => package.Id,
+            _ => new List<X4ContentPackage>(),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var package in extensions)
+        {
+            foreach (var dependency in package.EffectiveDependencies)
+            {
+                if (!byIdentity.TryGetValue(dependency.Id, out var dependencyPackage) ||
+                    dependencyPackage.Id.Equals(package.Id, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                indegree[package.Id]++;
+                dependents[dependencyPackage.Id].Add(package);
+            }
+        }
+
+        var ready = new PriorityQueue<X4ContentPackage, int>();
+        foreach (var package in extensions.Where(package => indegree[package.Id] == 0))
+            ready.Enqueue(package, discoveryOrder[package.Id]);
+
+        var ordered = new List<X4ContentPackage> { basePackage };
+        while (ready.TryDequeue(out var package, out _))
+        {
+            ordered.Add(package);
+            foreach (var dependent in dependents[package.Id])
+            {
+                indegree[dependent.Id]--;
+                if (indegree[dependent.Id] == 0)
+                    ready.Enqueue(dependent, discoveryOrder[dependent.Id]);
+            }
+        }
+
+        if (ordered.Count != selectedPackages.Count)
+        {
+            var cycle = extensions.Where(package => indegree[package.Id] > 0)
+                .Select(package => package.Id);
+            throw new InvalidOperationException($"内容包依赖形成循环：{string.Join("、", cycle)}");
+        }
+        return ordered;
+    }
+
+    private static bool HasLooseDataFiles(string directory, X4ContentKind kind) =>
+        EnumerateLooseSourceFiles(directory, kind).Any();
 
     private static IReadOnlyList<X4LooseFile> BuildLooseFiles(IEnumerable<X4ContentPackage> packages)
     {
         var looseFiles = new List<X4LooseFile>();
         foreach (var package in packages)
         {
-            var fileName = package.Kind == X4ContentKind.BaseGame ? "version.dat" : "content.xml";
-            var sourcePath = Path.Combine(package.DirectoryPath, fileName);
-            if (!File.Exists(sourcePath)) continue;
-            var relativePath = package.Kind == X4ContentKind.BaseGame
-                ? fileName
-                : $"extensions/{package.Id}/{fileName}";
-            looseFiles.Add(new X4LooseFile(
-                NormalizeCatalogPath(relativePath),
-                sourcePath,
-                new FileInfo(sourcePath).Length));
+            foreach (var sourcePath in EnumerateLooseSourceFiles(package.DirectoryPath, package.Kind))
+            {
+                var packageRelativePath = NormalizeCatalogPath(
+                    Path.GetRelativePath(package.DirectoryPath, sourcePath));
+                var storedRelativePath = package.Kind == X4ContentKind.BaseGame
+                    ? packageRelativePath
+                    : NormalizeCatalogPath($"extensions/{package.Id}/{packageRelativePath}");
+                looseFiles.Add(new X4LooseFile(
+                    storedRelativePath,
+                    package.Id,
+                    packageRelativePath,
+                    sourcePath,
+                    new FileInfo(sourcePath).Length));
+            }
         }
-        return looseFiles;
+        return looseFiles
+            .OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static IEnumerable<string> EnumerateLooseSourceFiles(string directory, X4ContentKind kind)
+    {
+        if (kind == X4ContentKind.BaseGame)
+        {
+            var versionPath = Path.Combine(directory, "version.dat");
+            if (File.Exists(versionPath)) yield return versionPath;
+            yield break;
+        }
+
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = false,
+            AttributesToSkip = FileAttributes.ReparsePoint
+        };
+        foreach (var path in Directory.EnumerateFiles(directory, "*.xml", options))
+            yield return Path.GetFullPath(path);
     }
 
     private static void MergeCatalog(
         string catalogPath,
+        string packageId,
         string relativePrefix,
+        X4DataFileSourceKind sourceKind,
         IDictionary<string, X4CatalogEntry> resolvedEntries)
     {
         var dataPath = Path.ChangeExtension(catalogPath, ".dat");
@@ -349,7 +569,8 @@ public sealed class X4CatalogExtractor
                 throw new InvalidDataException($"CAT 条目格式无效：{catalogPath}：{line}");
 
             var catalogRelativePath = match.Groups["path"].Value;
-            var normalizedRelativePath = NormalizeCatalogPath(relativePrefix + catalogRelativePath);
+            var normalizedPackageRelativePath = NormalizeCatalogPath(catalogRelativePath);
+            var normalizedRelativePath = NormalizeCatalogPath(relativePrefix + normalizedPackageRelativePath);
             if (size == 0)
             {
                 resolvedEntries.Remove(normalizedRelativePath);
@@ -358,6 +579,9 @@ public sealed class X4CatalogExtractor
 
             resolvedEntries[normalizedRelativePath] = new X4CatalogEntry(
                 normalizedRelativePath,
+                packageId,
+                normalizedPackageRelativePath,
+                sourceKind,
                 catalogPath,
                 dataPath,
                 offset,
@@ -371,35 +595,17 @@ public sealed class X4CatalogExtractor
             throw new InvalidDataException($"CAT 声明的数据长度超过 DAT：{catalogPath}");
     }
 
-    private static string NormalizeCatalogPath(string path)
+    private static bool IsTrue(string? value) =>
+        value is not null &&
+        (value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "1");
+
+    private static string? NullIfWhiteSpace(string? value)
     {
-        if (Path.IsPathRooted(path) || path.StartsWith("\\\\", StringComparison.Ordinal))
-            throw new InvalidDataException($"CAT 包含不安全路径：{path}");
-        var normalized = path.Replace('\\', '/');
-        while (normalized.StartsWith("./", StringComparison.Ordinal)) normalized = normalized[2..];
-        normalized = normalized.TrimStart('/');
-        var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length == 0 || segments.Any(IsUnsafeWindowsPathSegment))
-            throw new InvalidDataException($"CAT 包含不安全路径：{path}");
-        return string.Join('/', segments).ToLowerInvariant();
+        var trimmed = value?.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
     }
 
-    private static bool IsUnsafeWindowsPathSegment(string segment)
-    {
-        if (segment is "." or ".." || segment.Contains(':') ||
-            segment.EndsWith('.') || segment.EndsWith(' ') ||
-            segment.IndexOfAny(['<', '>', '"', '|', '?', '*', '\0']) >= 0)
-            return true;
-
-        var deviceName = segment.Split('.')[0];
-        return deviceName.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
-               deviceName.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
-               deviceName.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
-               deviceName.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
-               Enumerable.Range(1, 9).Any(number =>
-                   deviceName.Equals($"COM{number}", StringComparison.OrdinalIgnoreCase) ||
-                   deviceName.Equals($"LPT{number}", StringComparison.OrdinalIgnoreCase));
-    }
+    private static string NormalizeCatalogPath(string path) => X4VirtualPath.Normalize(path, "CAT");
 
     private static string ResolveSafeOutputPath(string destinationRoot, string relativePath)
     {

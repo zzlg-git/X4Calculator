@@ -227,7 +227,6 @@ public sealed class StationStorageAllocationCalculator
             var racePopulation = effectiveWorkforce * raceCapacity / totalRaceCapacity;
             foreach (var (wareId, amount) in recipe.Consumption)
             {
-                if (wareId.StartsWith("secondary:", StringComparison.OrdinalIgnoreCase)) continue;
                 var perMinute = amount / recipe.Amount / recipe.Time * 60 * racePopulation;
                 var ware = _gameData.FindByWareId(wareId);
                 if (ware is not { Volume: > 0 }) continue;

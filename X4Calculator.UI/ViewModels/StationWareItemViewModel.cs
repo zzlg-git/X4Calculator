@@ -9,6 +9,7 @@ public sealed class StationWareItemViewModel : ViewModelBase
 {
     private readonly Ware _ware;
     private readonly StationWareSetting _setting;
+    private readonly Action? _storageAllocationChanged;
     private readonly Action? _transportSettingsChanged;
     private bool _isExpanded;
     private bool _isAutomaticAllocation = true;
@@ -34,11 +35,13 @@ public sealed class StationWareItemViewModel : ViewModelBase
         long? productionBatchAmount = null,
         bool enableImplicitWorkforceBuyOffer = false,
         long? workforceAutomaticBuyAmount = null,
+        Action? storageAllocationChanged = null,
         Action? transportSettingsChanged = null,
         bool isStationSupply = false)
     {
         _ware = ware;
         _setting = setting;
+        _storageAllocationChanged = storageAllocationChanged;
         _transportSettingsChanged = transportSettingsChanged;
         IsStationSupply = isStationSupply;
         Role = role;
@@ -105,6 +108,7 @@ public sealed class StationWareItemViewModel : ViewModelBase
             if (!SetProperty(ref _isAutomaticAllocation, value)) return;
             _setting.StorageAllocationStatus = value ? StationStorageAllocationStatus.Automatic : StationStorageAllocationStatus.Manual;
             _setting.StorageAllocationOverride = value ? null : QuantityLimit;
+            _storageAllocationChanged?.Invoke();
         }
     }
 

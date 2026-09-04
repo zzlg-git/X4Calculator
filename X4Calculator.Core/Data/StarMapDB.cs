@@ -248,7 +248,7 @@ public class StarMapDB
     /// <summary>取得游戏 colors.xml 中指定势力的星图颜色。</summary>
     public string ResolveFactionColorHex(string? owner) => ResolveFactionColor(owner);
 
-    /// <summary>应用一次存档导入的空间站和实时扇区归属；空结果恢复静态默认归属。</summary>
+    /// <summary>应用一次存档导入的空间站、实时扇区归属和地表改造人口；空结果恢复静态默认值。</summary>
     public void ApplySavegameData(SavegameImportResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -262,6 +262,7 @@ public class StarMapDB
         }
 
         RefreshOwnershipDisplay();
+        ApplyTerraformingPopulations(result.TerraformingPopulations);
         ReplacePlayerStations(result.Stations);
         ReplaceNpcStations(result.NpcStations);
         ReplaceSaveMapObjects(result.MapObjects);
@@ -315,6 +316,25 @@ public class StarMapDB
             sector.Owner = _defaultSectorOwners.GetValueOrDefault(sector.Id, "ownerless");
             sector.IsContested = false;
         }
+    }
+
+    private void ApplyTerraformingPopulations(
+        IReadOnlyList<TerraformingPopulation> terraformingPopulations)
+    {
+        var overrides = new Dictionary<string, Dictionary<string, long>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var item in terraformingPopulations)
+        {
+            if (string.IsNullOrWhiteSpace(item.ClusterId) ||
+                string.IsNullOrWhiteSpace(item.WorldPart) || item.Population < 0)
+                continue;
+            if (!overrides.TryGetValue(item.ClusterId, out var parts))
+                overrides[item.ClusterId] = parts = new(StringComparer.OrdinalIgnoreCase);
+            parts[item.WorldPart] = item.Population;
+        }
+
+        foreach (var sector in Sectors.Values)
+            sector.Population = CalculateSectorPopulation(sector, overrides);
     }
 
     private void ProjectStation(Station station)
@@ -511,13 +531,7 @@ public class StarMapDB
             else
                 sector.SunlightFactor = 1.0;
 
-            sector.Population = 0;
-            if (!_worldsBySector.TryGetValue(sector.Id, out var worlds) ||
-                !_systemByCluster.TryGetValue(sector.ClusterId, out var systemKey) ||
-                !_populationBySystemPart.TryGetValue(systemKey, out var populations)) continue;
-            sector.Population = (long)Math.Round(worlds.Sum(world =>
-                    populations.TryGetValue(world.Part, out var population) ? population * world.Factor : 0),
-                MidpointRounding.AwayFromZero);
+            sector.Population = CalculateSectorPopulation(sector);
         }
 
         if (Sectors.Count == 0)
@@ -528,6 +542,28 @@ public class StarMapDB
 
         MinSunlightPercent = Sectors.Values.Min(sector => sector.SunlightPercent);
         MaxSunlightPercent = Sectors.Values.Max(sector => sector.SunlightPercent);
+    }
+
+    private long CalculateSectorPopulation(
+        SectorInfo sector,
+        IReadOnlyDictionary<string, Dictionary<string, long>>? terraformingPopulations = null)
+    {
+        if (!_worldsBySector.TryGetValue(sector.Id, out var worlds)) return 0;
+
+        Dictionary<string, long>? terraformingParts = null;
+        terraformingPopulations?.TryGetValue(sector.ClusterId, out terraformingParts);
+        Dictionary<string, long>? staticPopulations = null;
+        if (_systemByCluster.TryGetValue(sector.ClusterId, out var systemKey))
+            _populationBySystemPart.TryGetValue(systemKey, out staticPopulations);
+
+        return (long)Math.Round(worlds.Sum(world =>
+        {
+            if (terraformingParts?.TryGetValue(world.Part, out var currentPopulation) == true)
+                return currentPopulation * world.Factor;
+            return staticPopulations?.TryGetValue(world.Part, out var maximumPopulation) == true
+                ? maximumPopulation * world.Factor
+                : 0;
+        }), MidpointRounding.AwayFromZero);
     }
 
     private void ResolveNames()

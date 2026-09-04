@@ -183,7 +183,7 @@
                         <StackPanel Margin="34" HorizontalAlignment="Center" VerticalAlignment="Center">
                             <TextBlock Text="包含 MOD 的数据导出" FontSize="27" FontWeight="SemiBold"
                                        TextAlignment="Center" TextWrapping="Wrap"/>
-                            <TextBlock Text="除基础游戏和官方 DLC 外，还导出检测到的 CAT/DAT 第三方扩展；当前版本暂不将 MOD 用于计算。"
+                            <TextBlock Text="除基础游戏和官方 DLC 外，还导出检测到的 CAT/DAT、松散 XML 或混合式第三方扩展；当前版本暂不将 MOD 用于计算。"
                                        Margin="0 18 0 0" FontSize="16"
                                        Foreground="{StaticResource TextSecondaryBrush}"
                                        TextAlignment="Center" TextWrapping="Wrap"/>

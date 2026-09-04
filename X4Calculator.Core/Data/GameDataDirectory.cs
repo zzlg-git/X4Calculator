@@ -16,21 +16,24 @@ public static class GameDataDirectory
     ];
 
     public const string ManifestFileName = "x4calculator-manifest.json";
+    public const int SupportedManifestVersion = 2;
 
     public static bool IsUsable(string? path) =>
         !string.IsNullOrWhiteSpace(path) &&
         Directory.Exists(path) &&
-        File.Exists(Path.Combine(path, ManifestFileName)) &&
-        HasRequiredFiles(path);
+        HasRequiredFiles(path) &&
+        HasSupportedManifest(path);
 
     public static void EnsureUsable(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var fullPath = Path.GetFullPath(path);
         EnsureRequiredFiles(fullPath);
-        if (!File.Exists(Path.Combine(fullPath, ManifestFileName)))
+        var manifestPath = Path.Combine(fullPath, ManifestFileName);
+        if (!File.Exists(manifestPath))
             throw new DirectoryNotFoundException(
                 $"GameData 缺少完成清单 {ManifestFileName}：{fullPath}");
+        _ = X4EffectiveDataProvider.ReadAndValidateManifest(fullPath);
     }
 
     public static void EnsureRequiredFiles(string path)
@@ -48,4 +51,29 @@ public static class GameDataDirectory
 
     private static bool HasRequiredFiles(string path) => RequiredRelativeFiles.All(relativePath =>
         File.Exists(Path.Combine(path, relativePath.Replace('/', Path.DirectorySeparatorChar))));
+
+    private static bool HasSupportedManifest(string path)
+    {
+        try
+        {
+            _ = X4EffectiveDataProvider.ReadAndValidateManifest(path);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
 }

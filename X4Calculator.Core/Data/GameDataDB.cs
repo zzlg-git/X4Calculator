@@ -99,15 +99,17 @@ public class GameDataDB
     // 文本引用解析正则：{pageId,textId}（允许逗号前后有空格，如 "{20101, 32502}"）
     private static readonly Regex TextRefRegex = new(@"\{(\d+)\s*,\s*(\d+)\}", RegexOptions.Compiled);
 
-    // wares 蓝图信息：宏 id → ware tags（基础+DLC 的 wares.xml，用于剔除 limited/noblueprint/noplayerblueprint 等不可获取舰船与引擎）
+    // wares 蓝图信息：宏 id → 最终有效 ware tags（用于剔除 limited/noblueprint/noplayerblueprint 等不可获取舰船与引擎）
     private readonly Dictionary<string, HashSet<string>> _wareTagsByMacro = new(StringComparer.OrdinalIgnoreCase);
 
-    // X4 官方 index：组件/macro 名 → 文件路径。DLC index 的 value 仍以 dataDir 为根。
+    // 有效 index：组件/macro 名 → 虚拟路径。扩展 index 的相对 value 挂载到其 extension 命名空间。
     private readonly Dictionary<string, string> _componentPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _macroPaths = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string>? _componentFallbackPaths;
     private Dictionary<string, string>? _macroFallbackPaths;
     private string? _indexedDataDir;
+    private X4EffectiveDataProvider? _effectiveData;
+    private string? _effectiveDataRoot;
 
     // 多个舰船/引擎宏会复用同一个组件或仓储宏，只解析一次。
     private readonly Dictionary<string, ShipComponentData> _shipComponentData = new(StringComparer.OrdinalIgnoreCase);
@@ -116,6 +118,54 @@ public class GameDataDB
 
     public GameDataDB() { }
 
+    private XDocument LoadDataDocument(string path)
+    {
+        if (_effectiveData == null) return XDocument.Load(path);
+        var virtualPath = ToVirtualPath(path);
+        var result = _effectiveData.LoadXml(virtualPath);
+        if (result.Document == null || result.HasErrors)
+            throw CreateEffectiveDataException(result);
+        return result.Document;
+    }
+
+    private XDocument? TryLoadDataDocument(string path)
+    {
+        if (_effectiveData == null)
+            return File.Exists(path) ? XDocument.Load(path) : null;
+        var virtualPath = ToVirtualPath(path);
+        if (!_effectiveData.ContainsCandidateXmlPath(virtualPath)) return null;
+        var result = _effectiveData.LoadXml(virtualPath);
+        if (result.Document == null) return null;
+        if (result.HasErrors) throw CreateEffectiveDataException(result);
+        return result.Document;
+    }
+
+    private bool DataFileExists(string path) => _effectiveData == null
+        ? File.Exists(path)
+        : _effectiveData.ContainsCandidateXmlPath(ToVirtualPath(path));
+
+    private string ToVirtualPath(string path)
+    {
+        if (_effectiveDataRoot == null || !Path.IsPathRooted(path))
+            return X4VirtualPath.Normalize(path, "GameData 虚拟路径");
+        return X4VirtualPath.Normalize(Path.GetRelativePath(_effectiveDataRoot, path), "GameData 虚拟路径");
+    }
+
+    private IReadOnlyList<string> EnumerateEffectiveCandidates(string? prefix = null) =>
+        _effectiveData?.EnumerateCandidateXmlPathsInLoadOrder(prefix) ?? [];
+
+    private static InvalidDataException CreateEffectiveDataException(X4EffectiveXmlResult result)
+    {
+        var details = string.Join("；", result.Diagnostics
+            .Where(diagnostic => diagnostic.Severity == X4XmlPatchDiagnosticSeverity.Error)
+            .Take(5)
+            .Select(diagnostic => $"{diagnostic.PackageId}/{diagnostic.SourcePath}: {diagnostic.Message}"));
+        return new InvalidDataException(
+            string.IsNullOrWhiteSpace(details)
+                ? $"无法物化有效 XML：{result.VirtualPath}"
+                : $"无法物化有效 XML {result.VirtualPath}：{details}");
+    }
+
     /// <summary>
     /// 从 GameData 根目录直接加载数据。
     /// </summary>
@@ -123,35 +173,28 @@ public class GameDataDB
     public async Task LoadAsync(string gameDataPath)
     {
         var dataDir = Path.GetFullPath(gameDataPath);
-        GameDataDirectory.EnsureUsable(dataDir);
-        var libDir = Path.Combine(dataDir, "libraries");
-        var tDir = Path.Combine(dataDir, "t");
+        GameDataDirectory.EnsureRequiredFiles(dataDir);
+        ResetForLoad();
+        _effectiveDataRoot = dataDir;
+        _effectiveData = new X4EffectiveDataProvider(dataDir);
 
         EnsureDataFileIndexes(dataDir);
 
         // 1. 加载中文文本（必须先加载，因为解析 wares.xml 时需要查表）
-        var textFile = FindChineseTextFile(tDir);
-        if (textFile != null)
-            await LoadTextFileAsync(textFile);
+        await LoadChineseTextFilesAsync();
 
         // 2. 加载商品/配方数据
-        var waresPath = Path.Combine(libDir, "wares.xml");
-        if (File.Exists(waresPath))
-            LoadWares(waresPath);
+        LoadWares("libraries/wares.xml");
 
         // 3. 加载模块映射
-        var modulesPath = Path.Combine(libDir, "modules.xml");
-        if (File.Exists(modulesPath))
-            LoadModules(modulesPath);
+        LoadModules("libraries/modules.xml");
 
-        // 3.1 合并官方 DLC 对商品、配方和生产模块的增量定义。
-        LoadExtensionProductionData(dataDir);
         LoadStationModuleDefinitions(dataDir);
-        LoadWorkforceGrowthParameters(libDir);
-        LoadShipBuildStorageParameters(libDir);
+        LoadWorkforceGrowthParameters("libraries/parameters.xml");
+        LoadShipBuildStorageParameters("libraries/parameters.xml");
 
         // 3.5 加载 wares 蓝图信息（用于剔除 limited/noblueprint 等不可获取的舰船与引擎）
-        LoadWareBlueprintTags(dataDir);
+        LoadWareBlueprintTags();
 
         // 3.6 从已合并的 ware 配方建立舰船/装备/消耗品直接材料反向索引，不扫描 macro 文件。
         BuildPlayerBuildMaterialIndex();
@@ -163,18 +206,33 @@ public class GameDataDB
         await LoadEquipmentAsync(dataDir);
     }
 
-    /// <summary>
-    /// 在 t/ 目录下查找简体中文文本文件（0001-l086.xml）。
-    /// </summary>
-    private static string? FindChineseTextFile(string tDir)
+    private void ResetForLoad()
     {
-        if (!Directory.Exists(tDir)) return null;
+        Wares.Clear();
+        WaresByFactoryName.Clear();
+        ModuleWareMapping.Clear();
+        ProductionFacilitiesByWare.Clear();
+        StationModuleDefinitions.Clear();
+        PlayerBuildUsesByMaterial.Clear();
+        PlayerBuildables.Clear();
+        StationModuleBuildables.Clear();
+        StationModuleBuildUsesByMaterial.Clear();
+        BlueprintBuildables.Clear();
+        WorkforceGrowthParameters = new WorkforceGrowthParameters();
+        WharfUpgradeResourceFactors = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        ShipyardUpgradeResourceFactors = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        _textPages.Clear();
+        _wareTagsByMacro.Clear();
+        _indexedDataDir = null;
+    }
 
-        // 优先精确匹配 0001-l086.xml，否则扫描 -l086 后缀
-        var exact = Path.Combine(tDir, "0001-l086.xml");
-        if (File.Exists(exact)) return exact;
-
-        return Directory.GetFiles(tDir, "*-l086.xml").FirstOrDefault();
+    private async Task LoadChineseTextFilesAsync()
+    {
+        await LoadTextFileAsync("t/0001-l086.xml");
+        foreach (var path in EnumerateEffectiveCandidates("extensions")
+                     .Where(path => path.Contains("/t/", StringComparison.OrdinalIgnoreCase) &&
+                                    Path.GetFileName(path).Contains("-l086", StringComparison.OrdinalIgnoreCase)))
+            await LoadTextFileAsync(path);
     }
 
     /// <summary>
@@ -182,7 +240,8 @@ public class GameDataDB
     /// </summary>
     private Task LoadTextFileAsync(string textFilePath)
     {
-        var doc = XDocument.Load(textFilePath);
+        var doc = TryLoadDataDocument(textFilePath);
+        if (doc == null) return Task.CompletedTask;
         var root = doc.Root;
         if (root == null) return Task.CompletedTask;
 
@@ -191,7 +250,11 @@ public class GameDataDB
             var pageId = pageElem.Attribute("id")?.Value;
             if (string.IsNullOrEmpty(pageId)) continue;
 
-            var pageDict = new Dictionary<string, string>();
+            if (!_textPages.TryGetValue(pageId, out var pageDict))
+            {
+                pageDict = new Dictionary<string, string>();
+                _textPages[pageId] = pageDict;
+            }
             foreach (var tElem in pageElem.Elements("t"))
             {
                 var tId = tElem.Attribute("id")?.Value;
@@ -200,7 +263,6 @@ public class GameDataDB
                     pageDict[tId] = tElem.Value;
                 }
             }
-            _textPages[pageId] = pageDict;
         }
 
         return Task.CompletedTask;
@@ -266,7 +328,7 @@ public class GameDataDB
     /// </summary>
     private void LoadWares(string waresPath)
     {
-        var doc = XDocument.Load(waresPath);
+        var doc = LoadDataDocument(waresPath);
         var root = doc.Root;
         if (root == null) return;
 
@@ -284,11 +346,9 @@ public class GameDataDB
         }
     }
 
-    private void LoadWorkforceGrowthParameters(string libDir)
+    private void LoadWorkforceGrowthParameters(string parametersPath)
     {
-        var path = Path.Combine(libDir, "parameters.xml");
-        if (!File.Exists(path)) return;
-        var growth = XDocument.Load(path).Root?.Element("workforce")?.Element("growth");
+        var growth = TryLoadDataDocument(parametersPath)?.Root?.Element("workforce")?.Element("growth");
         if (growth == null) return;
         var capacity = growth.Element("capacity");
         var population = growth.Element("population");
@@ -312,78 +372,6 @@ public class GameDataDB
 
     private static double ParseDouble(string? value, double fallback) =>
         double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : fallback;
-
-    /// <summary>
-    /// 合并 extensions/ego_dlc_*/libraries 下与生产链有关的商品和模块定义。
-    /// X4 DLC 使用 diff：既会向 /wares 添加新商品，也会向既有商品追加配方。
-    /// </summary>
-    private void LoadExtensionProductionData(string dataDir)
-    {
-        var extensionsDir = Path.Combine(dataDir, "extensions");
-        if (!Directory.Exists(extensionsDir)) return;
-
-        foreach (var extensionDir in Directory.GetDirectories(extensionsDir, "ego_dlc_*"))
-        {
-            var librariesDir = Path.Combine(extensionDir, "libraries");
-            var waresPath = Path.Combine(librariesDir, "wares.xml");
-            if (File.Exists(waresPath))
-                MergeExtensionWares(waresPath);
-
-            var modulesPath = Path.Combine(librariesDir, "modules.xml");
-            if (File.Exists(modulesPath))
-                LoadModules(modulesPath);
-        }
-    }
-
-    private void MergeExtensionWares(string waresPath)
-    {
-        var doc = XDocument.Load(waresPath);
-        var root = doc.Root;
-        if (root == null) return;
-
-        if (root.Name.LocalName == "wares")
-        {
-            LoadWares(waresPath);
-            return;
-        }
-
-        // 新商品：<add sel="/wares"><ware ... /></add>
-        foreach (var add in root.Elements("add")
-                     .Where(e => string.Equals(e.Attribute("sel")?.Value, "/wares", StringComparison.Ordinal)))
-        {
-            foreach (var wareElem in add.Elements("ware"))
-            {
-                var ware = ParseWare(wareElem);
-                if (ware == null) continue;
-                Wares[ware.Id] = ware;
-                if (!string.IsNullOrEmpty(ware.FactoryName))
-                    WaresByFactoryName[ware.FactoryName] = ware;
-            }
-        }
-
-        // 既有商品追加配方：<add sel="/wares/ware[@id='...']"><production ... /></add>
-        var wareSelector = new Regex(@"^/wares/ware\[@id='(?<id>[^']+)'\]$", RegexOptions.Compiled);
-        foreach (var add in root.Elements("add"))
-        {
-            var match = wareSelector.Match(add.Attribute("sel")?.Value ?? string.Empty);
-            if (!match.Success || !Wares.TryGetValue(match.Groups["id"].Value, out var ware))
-                continue;
-
-            foreach (var productionElem in add.Elements("production"))
-            {
-                var recipe = ParseRecipe(productionElem);
-                if (recipe == null) continue;
-                ware.Production ??= new List<ProductionRecipe>();
-                if (!ware.Production.Any(existing =>
-                        string.Equals(existing.Method, recipe.Method, StringComparison.OrdinalIgnoreCase) &&
-                        Math.Abs(existing.Time - recipe.Time) < 0.0001 &&
-                        Math.Abs(existing.Amount - recipe.Amount) < 0.0001))
-                {
-                    ware.Production.Add(recipe);
-                }
-            }
-        }
-    }
 
     /// <summary>
     /// 从 &lt;ware&gt; XML 元素解析商品。
@@ -449,18 +437,18 @@ public class GameDataDB
 
         if (timeStr == null || amountStr == null) return null;
 
-        var time = double.TryParse(timeStr, out var t) ? t : 0;
-        var amount = double.TryParse(amountStr, out var a) ? a : 0;
-        var workforceProductBonus = double.TryParse(
-            prodElem.Element("effects")?.Elements("effect")
-                .FirstOrDefault(effect => string.Equals(
-                    effect.Attribute("type")?.Value, "work", StringComparison.OrdinalIgnoreCase))?
-                .Attribute("product")?.Value,
-            NumberStyles.Float,
-            CultureInfo.InvariantCulture,
-            out var parsedWorkforceProductBonus)
-            ? parsedWorkforceProductBonus
-            : 0;
+        var time = ParseFiniteDouble(timeStr) ?? 0;
+        var amount = ParseFiniteDouble(amountStr) ?? 0;
+        var effects = prodElem.Element("effects")?.Elements("effect")
+            .Select(effect => new ProductionEffect(
+                effect.Attribute("type")?.Value ?? string.Empty,
+                ParseFiniteDouble(effect.Attribute("product")?.Value),
+                ParseFiniteDouble(effect.Attribute("cycle")?.Value)))
+            .Where(effect => !string.IsNullOrWhiteSpace(effect.Type))
+            .ToList() ?? [];
+        var workforceEffects = effects.Where(effect =>
+            effect.Type.Equals("work", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var workforceEffect = workforceEffects.Length == 1 ? workforceEffects[0] : null;
 
         var consumption = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
@@ -472,15 +460,15 @@ public class GameDataDB
             {
                 var wareId = wareElem.Attribute("ware")?.Value;
                 var amountStr2 = wareElem.Attribute("amount")?.Value;
-                if (wareId != null && amountStr2 != null &&
-                    double.TryParse(amountStr2, out var amt))
+                if (wareId != null && ParseFiniteDouble(amountStr2) is { } amountValue)
                 {
-                    consumption[wareId] = amt;
+                    consumption[wareId] = amountValue;
                 }
             }
         }
 
         // 解析 secondary 消耗（可选）
+        var secondaryConsumption = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         var secondary = prodElem.Element("secondary");
         if (secondary != null)
         {
@@ -488,11 +476,9 @@ public class GameDataDB
             {
                 var wareId = wareElem.Attribute("ware")?.Value;
                 var amountStr2 = wareElem.Attribute("amount")?.Value;
-                if (wareId != null && amountStr2 != null &&
-                    double.TryParse(amountStr2, out var amt))
+                if (wareId != null && ParseFiniteDouble(amountStr2) is { } amountValue)
                 {
-                    // 用已有键区分，不覆盖 primary
-                    consumption[$"secondary:{wareId}"] = amt;
+                    secondaryConsumption[wareId] = amountValue;
                 }
             }
         }
@@ -505,9 +491,18 @@ public class GameDataDB
             Name = name,
             Tags = tags,
             Consumption = consumption.Count > 0 ? consumption : null,
-            WorkforceProductBonus = workforceProductBonus
+            SecondaryConsumption = secondaryConsumption.Count > 0 ? secondaryConsumption : null,
+            Effects = effects,
+            WorkforceProductBonus = workforceEffect?.Product ?? 0,
+            WorkforceCycleBonus = workforceEffect?.Cycle ?? 0
         };
     }
+
+    private static double? ParseFiniteDouble(string? value) =>
+        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) &&
+        double.IsFinite(parsed)
+            ? parsed
+            : null;
 
     private void BuildPlayerBuildMaterialIndex()
     {
@@ -526,7 +521,6 @@ public class GameDataDB
             {
                 var materials = (recipe.Consumption ??
                                  new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase))
-                    .Where(item => !item.Key.StartsWith("secondary:", StringComparison.OrdinalIgnoreCase))
                     .Select(item => new PlayerBuildMaterial(item.Key, item.Value / recipe.Amount))
                     .OrderBy(item => item.WareId, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
@@ -590,7 +584,6 @@ public class GameDataDB
                 recipe.Method,
                 recipe.Time / recipe.Amount,
                 (recipe.Consumption ?? new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase))
-                .Where(item => !item.Key.StartsWith("secondary:", StringComparison.OrdinalIgnoreCase))
                 .Select(item => new PlayerBuildMaterial(item.Key, item.Value / recipe.Amount))
                 .OrderBy(item => item.WareId, StringComparer.OrdinalIgnoreCase)
                 .ToArray()))
@@ -734,7 +727,7 @@ public class GameDataDB
     /// </summary>
     private void LoadModules(string modulesPath)
     {
-        var doc = XDocument.Load(modulesPath);
+        var doc = LoadDataDocument(modulesPath);
         var root = doc.Root;
         if (root == null) return;
 
@@ -797,18 +790,30 @@ public class GameDataDB
 
         var indexFiles = new List<(string Components, string Macros)>
         {
-            (Path.Combine(normalizedDataDir, "index", "components.xml"),
-             Path.Combine(normalizedDataDir, "index", "macros.xml"))
+            (_effectiveData == null ? Path.Combine(normalizedDataDir, "index", "components.xml") : "index/components.xml",
+             _effectiveData == null ? Path.Combine(normalizedDataDir, "index", "macros.xml") : "index/macros.xml")
         };
 
-        var extensionsDir = Path.Combine(normalizedDataDir, "extensions");
-        if (Directory.Exists(extensionsDir))
+        if (_effectiveData != null)
         {
-            foreach (var extensionDir in Directory.GetDirectories(extensionsDir, "ego_dlc_*"))
+            foreach (var componentsPath in EnumerateEffectiveCandidates("extensions")
+                         .Where(path => path.EndsWith("/index/components.xml", StringComparison.OrdinalIgnoreCase)))
+                indexFiles.Add((componentsPath, string.Empty));
+            foreach (var macrosPath in EnumerateEffectiveCandidates("extensions")
+                         .Where(path => path.EndsWith("/index/macros.xml", StringComparison.OrdinalIgnoreCase)))
+                indexFiles.Add((string.Empty, macrosPath));
+        }
+        else
+        {
+            var extensionsDir = Path.Combine(normalizedDataDir, "extensions");
+            if (Directory.Exists(extensionsDir))
             {
-                indexFiles.Add((
-                    Path.Combine(extensionDir, "index", "components.xml"),
-                    Path.Combine(extensionDir, "index", "macros.xml")));
+                foreach (var extensionDir in Directory.GetDirectories(extensionsDir, "ego_dlc_*"))
+                {
+                    indexFiles.Add((
+                        Path.Combine(extensionDir, "index", "components.xml"),
+                        Path.Combine(extensionDir, "index", "macros.xml")));
+                }
             }
         }
 
@@ -823,27 +828,29 @@ public class GameDataDB
         _indexedDataDir = normalizedDataDir;
     }
 
-    private static void LoadDataIndex(
+    private void LoadDataIndex(
         string indexPath,
         string dataDir,
         Dictionary<string, string> destination,
         bool overwrite)
     {
-        if (!File.Exists(indexPath)) return;
+        if (string.IsNullOrWhiteSpace(indexPath)) return;
 
         try
         {
-            foreach (var entry in XDocument.Load(indexPath).Root?.Elements("entry") ?? [])
+            var document = TryLoadDataDocument(indexPath);
+            if (document == null) return;
+            foreach (var entry in document.Root?.Elements("entry") ?? [])
             {
                 var name = entry.Attribute("name")?.Value;
                 var value = entry.Attribute("value")?.Value;
                 if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(value) ||
                     name.Contains('*')) continue;
 
-                var relativePath = value
-                    .Replace('\\', Path.DirectorySeparatorChar)
-                    .Replace('/', Path.DirectorySeparatorChar) + ".xml";
-                var path = Path.Combine(dataDir, relativePath);
+                var relativePath = value.Replace('\\', '/') + ".xml";
+                var path = _effectiveData == null
+                    ? Path.Combine(dataDir, relativePath.Replace('/', Path.DirectorySeparatorChar))
+                    : ResolveIndexedVirtualPath(indexPath, relativePath);
 
                 if (overwrite || !destination.ContainsKey(name)) destination[name] = path;
             }
@@ -856,7 +863,7 @@ public class GameDataDB
 
     private string? LocateMacroFile(string macroRef, string dataDir)
     {
-        if (_macroPaths.TryGetValue(macroRef, out var indexedPath) && File.Exists(indexedPath))
+        if (_macroPaths.TryGetValue(macroRef, out var indexedPath) && DataFileExists(indexedPath))
             return indexedPath;
 
         EnsureMacroFallbackIndex(dataDir);
@@ -868,10 +875,14 @@ public class GameDataDB
         if (_componentFallbackPaths != null) return;
 
         _componentFallbackPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in Directory.EnumerateFiles(dataDir, "*.xml", SearchOption.AllDirectories))
+        var files = _effectiveData == null
+            ? Directory.EnumerateFiles(dataDir, "*.xml", SearchOption.AllDirectories)
+            : EnumerateEffectiveCandidates();
+        foreach (var file in files)
         {
             var name = Path.GetFileNameWithoutExtension(file);
-            if (!name.EndsWith("_macro", StringComparison.OrdinalIgnoreCase))
+            if (!name.EndsWith("_macro", StringComparison.OrdinalIgnoreCase) &&
+                (_effectiveData == null || TryLoadDataDocument(file) != null))
                 _componentFallbackPaths.TryAdd(name, file);
         }
     }
@@ -881,8 +892,15 @@ public class GameDataDB
         if (_macroFallbackPaths != null) return;
 
         _macroFallbackPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in Directory.EnumerateFiles(dataDir, "*_macro.xml", SearchOption.AllDirectories))
-            _macroFallbackPaths[Path.GetFileNameWithoutExtension(file)] = file;
+        var files = _effectiveData == null
+            ? Directory.EnumerateFiles(dataDir, "*_macro.xml", SearchOption.AllDirectories)
+            : EnumerateEffectiveCandidates().Where(path =>
+                Path.GetFileName(path).EndsWith("_macro.xml", StringComparison.OrdinalIgnoreCase));
+        foreach (var file in files)
+        {
+            if (_effectiveData == null || TryLoadDataDocument(file) != null)
+                _macroFallbackPaths[Path.GetFileNameWithoutExtension(file)] = file;
+        }
     }
 
     private void LoadStationModuleDefinitions(string dataDir)
@@ -898,7 +916,7 @@ public class GameDataDB
             if (file == null) continue;
             try
             {
-                var macro = XDocument.Load(file).Descendants("macro").FirstOrDefault();
+                var macro = LoadDataDocument(file).Descendants("macro").FirstOrDefault();
                 var properties = macro?.Element("properties");
                 if (macro == null || properties == null) continue;
                 var id = macro.Attribute("name")?.Value;
@@ -955,11 +973,9 @@ public class GameDataDB
         }
     }
 
-    private void LoadShipBuildStorageParameters(string libDir)
+    private void LoadShipBuildStorageParameters(string parametersPath)
     {
-        var path = Path.Combine(libDir, "parameters.xml");
-        if (!File.Exists(path)) return;
-        var root = XDocument.Load(path).Root;
+        var root = TryLoadDataDocument(parametersPath)?.Root;
         WharfUpgradeResourceFactors = ReadUpgradeResourceFactors(root?.Element("wharfupgraderesources"));
         ShipyardUpgradeResourceFactors = ReadUpgradeResourceFactors(root?.Element("shipyardupgraderesources"));
     }
@@ -1137,30 +1153,38 @@ public class GameDataDB
         // 搜索所有 ship_*_macro.xml 文件
         var shipFiles = new List<string>();
 
-        // 1. 基础目录
-        var unitsDir = Path.Combine(dataDir, "assets", "units");
-        if (Directory.Exists(unitsDir))
+        if (_effectiveData != null)
         {
-            shipFiles.AddRange(Directory.GetFiles(
-                unitsDir, "ship_*_macro.xml", SearchOption.AllDirectories));
+            shipFiles.AddRange(EnumerateEffectiveCandidates().Where(path =>
+                (path.StartsWith("assets/units/", StringComparison.OrdinalIgnoreCase) ||
+                 path.Contains("/assets/units/", StringComparison.OrdinalIgnoreCase)) &&
+                Path.GetFileName(path).StartsWith("ship_", StringComparison.OrdinalIgnoreCase) &&
+                Path.GetFileName(path).EndsWith("_macro.xml", StringComparison.OrdinalIgnoreCase)));
         }
-
-        // 2. DLC 扩展目录
-        var extensionsDir = Path.Combine(dataDir, "extensions");
-        if (Directory.Exists(extensionsDir))
+        else
         {
-            foreach (var dlcDir in Directory.GetDirectories(extensionsDir, "ego_dlc_*"))
+            var unitsDir = Path.Combine(dataDir, "assets", "units");
+            if (Directory.Exists(unitsDir))
             {
-                var dlcUnitsDir = Path.Combine(dlcDir, "assets", "units");
-                if (Directory.Exists(dlcUnitsDir))
+                shipFiles.AddRange(Directory.GetFiles(
+                    unitsDir, "ship_*_macro.xml", SearchOption.AllDirectories));
+            }
+            var extensionsDir = Path.Combine(dataDir, "extensions");
+            if (Directory.Exists(extensionsDir))
+            {
+                foreach (var dlcDir in Directory.GetDirectories(extensionsDir, "ego_dlc_*"))
                 {
-                    shipFiles.AddRange(Directory.GetFiles(
-                        dlcUnitsDir, "ship_*_macro.xml", SearchOption.AllDirectories));
+                    var dlcUnitsDir = Path.Combine(dlcDir, "assets", "units");
+                    if (Directory.Exists(dlcUnitsDir))
+                    {
+                        shipFiles.AddRange(Directory.GetFiles(
+                            dlcUnitsDir, "ship_*_macro.xml", SearchOption.AllDirectories));
+                    }
                 }
             }
         }
 
-        foreach (var filePath in shipFiles)
+        foreach (var filePath in shipFiles.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             try
             {
@@ -1184,7 +1208,7 @@ public class GameDataDB
     /// </summary>
     private ShipInfo? ParseShipMacro(string filePath, string dataDir)
     {
-        var doc = XDocument.Load(filePath);
+        var doc = LoadDataDocument(filePath);
         var macroElem = doc.Root?.Element("macro");
         if (macroElem == null) return null;
 
@@ -1297,7 +1321,8 @@ public class GameDataDB
         var ship = new ShipInfo
         {
             Id = macroName,
-            SourceDir = System.IO.Path.GetDirectoryName(filePath),
+            SourceDir = System.IO.Path.GetDirectoryName(
+                filePath.Replace('/', Path.DirectorySeparatorChar)),
             Name = ResolveTextRefs(nameRef) ?? macroName,
             Race = primaryRace,
             Races = races,
@@ -1364,7 +1389,7 @@ public class GameDataDB
 
         try
         {
-            var compDoc = XDocument.Load(componentPath);
+            var compDoc = LoadDataDocument(componentPath);
             var connections = compDoc.Root?.Descendants("connection").ToList() ?? [];
 
             var engineConnections = connections
@@ -1421,7 +1446,7 @@ public class GameDataDB
         if (storagePath == null) return null;
         try
         {
-            var cargo = XDocument.Load(storagePath).Root?
+            var cargo = LoadDataDocument(storagePath).Root?
                 .Element("macro")?.Element("properties")?.Element("cargo");
             if (cargo == null) return null;
 
@@ -1453,11 +1478,11 @@ public class GameDataDB
             if (parentDir != null)
             {
                 var candidate = Path.Combine(parentDir, componentRef + ".xml");
-                if (File.Exists(candidate)) return candidate;
+                if (DataFileExists(candidate)) return candidate;
             }
         }
 
-        if (_componentPaths.TryGetValue(componentRef, out var indexedPath) && File.Exists(indexedPath))
+        if (_componentPaths.TryGetValue(componentRef, out var indexedPath) && DataFileExists(indexedPath))
             return indexedPath;
 
         EnsureComponentFallbackIndex(dataDir);
@@ -1537,20 +1562,35 @@ public class GameDataDB
             }
         }
 
-        // 1. 基础目录
-        CollectFrom(dataDir);
-
-        // 2. DLC 扩展目录
-        var extensionsDir = Path.Combine(dataDir, "extensions");
-        if (Directory.Exists(extensionsDir))
+        if (_effectiveData != null)
         {
-            foreach (var dlcDir in Directory.GetDirectories(extensionsDir, "ego_dlc_*"))
-                CollectFrom(dlcDir);
+            foreach (var path in EnumerateEffectiveCandidates().Where(path =>
+                         path.StartsWith("assets/props/engines/macros/", StringComparison.OrdinalIgnoreCase) ||
+                         path.Contains("/assets/props/engines/macros/", StringComparison.OrdinalIgnoreCase)))
+            {
+                var name = Path.GetFileName(path);
+                if (name.StartsWith("engine_", StringComparison.OrdinalIgnoreCase) &&
+                    name.EndsWith("_macro.xml", StringComparison.OrdinalIgnoreCase))
+                    engineFiles.Add(path);
+                else if (name.StartsWith("thruster_", StringComparison.OrdinalIgnoreCase) &&
+                         name.EndsWith("_macro.xml", StringComparison.OrdinalIgnoreCase))
+                    thrusterFiles.Add(path);
+            }
+        }
+        else
+        {
+            CollectFrom(dataDir);
+            var extensionsDir = Path.Combine(dataDir, "extensions");
+            if (Directory.Exists(extensionsDir))
+            {
+                foreach (var dlcDir in Directory.GetDirectories(extensionsDir, "ego_dlc_*"))
+                    CollectFrom(dlcDir);
+            }
         }
 
         // 引擎身份去重：剔除 timelines 与标准版重复的同名引擎（同种族+尺寸+修正后风格+档位保留先加载的基础版）
         var seenEngineKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var filePath in engineFiles)
+        foreach (var filePath in engineFiles.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             try
             {
@@ -1569,7 +1609,7 @@ public class GameDataDB
             }
         }
 
-        foreach (var filePath in thrusterFiles)
+        foreach (var filePath in thrusterFiles.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             try
             {
@@ -1618,7 +1658,7 @@ public class GameDataDB
     /// </summary>
     private EngineInfo? ParseEngineMacro(string filePath, string dataDir)
     {
-        var doc = XDocument.Load(filePath);
+        var doc = LoadDataDocument(filePath);
         var macroElem = doc.Root?.Element("macro");
         if (macroElem == null) return null;
 
@@ -1723,7 +1763,7 @@ public class GameDataDB
 
         try
         {
-            var result = XDocument.Load(componentPath).Root?.Descendants("connection")
+            var result = LoadDataDocument(componentPath).Root?.Descendants("connection")
                 .Where(connection => (connection.Attribute("tags")?.Value ?? string.Empty)
                     .Split(' ', StringSplitOptions.RemoveEmptyEntries)
                     .Contains("component", StringComparer.OrdinalIgnoreCase))
@@ -1751,7 +1791,7 @@ public class GameDataDB
     /// </summary>
     private ThrusterInfo? ParseThrusterMacro(string filePath)
     {
-        var doc = XDocument.Load(filePath);
+        var doc = LoadDataDocument(filePath);
         var macroElem = doc.Root?.Element("macro");
         if (macroElem == null) return null;
 
@@ -1797,47 +1837,36 @@ public class GameDataDB
     }
 
     /// <summary>
-    /// 加载 wares.xml 的蓝图信息：宏 id → ware tags。
-    /// 扫描基础目录与所有 DLC 扩展的 libraries/wares.xml，通过 &lt;ware&gt;&lt;component ref&gt; 映射到宏 id。
+    /// 从已物化的有效 wares 建立蓝图信息：宏 id → ware tags。
+    /// 通过 &lt;ware&gt;&lt;component ref&gt; 的解析结果映射到宏 id。
     /// 用于数据驱动剔除玩家不可获取的物品（limited/noblueprint/noplayerblueprint）。
     /// </summary>
-    private void LoadWareBlueprintTags(string dataDir)
+    private void LoadWareBlueprintTags()
     {
         _wareTagsByMacro.Clear();
-
-        void CollectFrom(string root)
+        foreach (var ware in Wares.Values)
         {
-            var waresPath = Path.Combine(root, "libraries", "wares.xml");
-            if (!File.Exists(waresPath)) return;
-            try
-            {
-                var doc = XDocument.Load(waresPath);
-                // 基础 wares.xml 根为 <wares>（ware 为直接子元素）；DLC 为 <diff>（ware 在 <add> 内）。
-                // 用 Descendants 递归取所有 <ware>，仅处理含 <component> 子元素的舰船/装备 ware
-                //（跳过 production 内的 <ware ware="..."> 原料引用）。
-                foreach (var ware in doc.Descendants("ware"))
-                {
-                    if (ware.Element("component") == null) continue;
-                    var tagSet = new HashSet<string>(
-                        (ware.Attribute("tags")?.Value ?? "")
-                            .Split(' ', StringSplitOptions.RemoveEmptyEntries),
-                        StringComparer.OrdinalIgnoreCase);
-                    foreach (var comp in ware.Elements("component"))
-                    {
-                        var refValue = comp.Attribute("ref")?.Value;
-                        if (!string.IsNullOrEmpty(refValue))
-                            _wareTagsByMacro[refValue] = tagSet;
-                    }
-                }
-            }
-            catch { /* 忽略单个 wares.xml 解析失败 */ }
+            if (string.IsNullOrWhiteSpace(ware.ComponentRef)) continue;
+            _wareTagsByMacro[ware.ComponentRef] = new HashSet<string>(
+                ware.Tags, StringComparer.OrdinalIgnoreCase);
         }
+    }
 
-        CollectFrom(dataDir);
-        var extDir = Path.Combine(dataDir, "extensions");
-        if (Directory.Exists(extDir))
-            foreach (var sub in Directory.EnumerateDirectories(extDir, "ego_dlc_*"))
-                CollectFrom(sub);
+    private static string ResolveIndexedVirtualPath(string indexPath, string relativePath)
+    {
+        var normalizedValue = X4VirtualPath.Normalize(relativePath, "X4 index");
+        var normalizedIndex = X4VirtualPath.Normalize(indexPath, "X4 index 路径");
+        var segments = normalizedIndex.Split('/');
+        if (segments.Length >= 4 &&
+            segments[0].Equals("extensions", StringComparison.OrdinalIgnoreCase) &&
+            segments[^2].Equals("index", StringComparison.OrdinalIgnoreCase))
+        {
+            if (normalizedValue.StartsWith("extensions/", StringComparison.OrdinalIgnoreCase))
+                return normalizedValue;
+            return X4VirtualPath.Normalize(
+                $"extensions/{segments[1]}/{normalizedValue}", "X4 扩展 index");
+        }
+        return normalizedValue;
     }
 
     /// <summary>

@@ -31,17 +31,8 @@ public static class StationIconResources
         if (Cache.TryGetValue(cacheKey, out var cached)) return cached;
         if (!SupportedKeys.Contains(iconKey)) return null;
 
-        System.Windows.Resources.StreamResourceInfo? resource;
-        try
-        {
-            resource = Application.GetResourceStream(
-                new Uri($"/X4Calculator;component/Assets/{iconKey}.gz", UriKind.Relative));
-        }
-        catch (IOException)
-        {
-            // 公开源码不附带 X4 的专有星图纹理。
-            return null;
-        }
+        var resource = Application.GetResourceStream(
+            new Uri($"/X4Calculator;component/Assets/{iconKey}.gz", UriKind.Relative));
         if (resource == null) return null;
 
         using (resource.Stream)

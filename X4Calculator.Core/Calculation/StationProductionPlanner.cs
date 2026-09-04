@@ -108,10 +108,7 @@ public sealed class StationProductionPlanner
                 batches.Add((long)recipe.Amount);
 
                 foreach (var wareId in (recipe.Consumption ?? []).Keys)
-                {
-                    if (!wareId.StartsWith("secondary:", StringComparison.OrdinalIgnoreCase))
-                        consumedByModule.Add(wareId);
-                }
+                    consumedByModule.Add(wareId);
             }
 
             foreach (var wareId in consumedByModule)
@@ -168,7 +165,15 @@ public sealed class StationProductionPlanner
             var recipe = SelectRecipe(ware, product.Method);
             if (ware == null || recipe == null || recipe.Time <= 0 || recipe.Amount <= 0) continue;
 
-            var operationPerMinute = product.OutputPerMinute ?? recipe.OutputPerMinute;
+            // processingmodule 的显式每分钟产量不是标准生产批次；尚无证据证明其会
+            // 采用 work 的批次取整与周期效果，因此只对普通配方求值。
+            var effects = product.OutputPerMinute == null
+                ? ProductionEffectCalculator.Evaluate(
+                    recipe,
+                    new ProductionEffectContext(WorkforceCoverage: workforceCoverage))
+                : new ProductionEffectResult(1, 1);
+            var operationPerMinute = (product.OutputPerMinute ?? recipe.OutputPerMinute) /
+                                     effects.CycleTimeMultiplier;
             if (IsScrapProcessor(moduleId) &&
                 !string.Equals(module.OperatingMode, "full", StringComparison.OrdinalIgnoreCase))
             {
@@ -176,19 +181,13 @@ public sealed class StationProductionPlanner
                 operationPerMinute *= 20d / 21d;
             }
             operationPerMinute *= module.Count * timeShare;
-            // X4 truncates the workforce bonus to whole ware units for every recipe batch.
-            // Applying the percentage to the aggregated hourly output overstates production.
-            var workforceBonusPerBatch = Math.Floor(
-                recipe.Amount * workforceCoverage * recipe.WorkforceProductBonus);
-            var outputPerMinute = operationPerMinute *
-                                  (1 + workforceBonusPerBatch / recipe.Amount);
+            var outputPerMinute = operationPerMinute * effects.ProductAmountMultiplier;
             if (string.Equals(product.WareId, "energycells", StringComparison.OrdinalIgnoreCase))
                 outputPerMinute *= sunlightFactor;
             Add(totals, ware.Id, outputPerMinute);
             foreach (var (id, amount) in recipe.Consumption ??
                      new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase))
             {
-                if (id.StartsWith("secondary:", StringComparison.OrdinalIgnoreCase)) continue;
                 Add(totals, id, -operationPerMinute * amount / recipe.Amount);
             }
         }

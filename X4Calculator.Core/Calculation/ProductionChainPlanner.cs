@@ -399,8 +399,7 @@ public sealed class ProductionChainPlanner
     }
 
     private static IEnumerable<string> GetPrimaryInputIds(ProductionRecipe recipe) =>
-        recipe.Consumption?.Keys.Where(id => !id.StartsWith("secondary:", StringComparison.OrdinalIgnoreCase))
-        ?? Enumerable.Empty<string>();
+        recipe.Consumption?.Keys ?? Enumerable.Empty<string>();
 
     /// <summary>
     /// 以当前谱系实际采用的配方计算最长上游距离。原料为 Tier 0，

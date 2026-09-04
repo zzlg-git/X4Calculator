@@ -133,7 +133,6 @@ public sealed class StationWorkforceConsumptionCalculator
 
         foreach (var (wareId, amount) in recipe.Consumption ?? [])
         {
-            if (wareId.StartsWith("secondary:", StringComparison.OrdinalIgnoreCase)) continue;
             Add(result, wareId, amount / recipe.Amount / recipe.Time * 60 * population);
         }
     }

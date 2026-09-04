@@ -97,9 +97,18 @@ public class ProductionRecipe
     public List<string> Tags { get; set; } = new();
 
     /// <summary>
-    /// 消耗品列表：wareId → 每周期消耗量。
+    /// Primary 消耗品列表：wareId → 每周期消耗量。
     /// </summary>
     public Dictionary<string, double>? Consumption { get; set; }
+
+    /// <summary>
+    /// Secondary 消耗品列表：wareId → 每周期消耗量。
+    /// 当前 No DA Wares 支持范围只保留数据，不自动假定有供应。
+    /// </summary>
+    public Dictionary<string, double>? SecondaryConsumption { get; set; }
+
+    /// <summary>按 XML 顺序保留的生产效果；未知类型也不丢弃。</summary>
+    public List<ProductionEffect> Effects { get; set; } = new();
 
     /// <summary>
     /// 满额劳动力带来的额外产品比例，来自 effects/effect[@type='work']/@product。
@@ -108,10 +117,24 @@ public class ProductionRecipe
     public double WorkforceProductBonus { get; set; }
 
     /// <summary>
+    /// 满额劳动力带来的周期缩短比例，来自 effects/effect[@type='work']/@cycle。
+    /// 有效周期倍率为 1 - workforceCoverage * WorkforceCycleBonus。
+    /// </summary>
+    public double WorkforceCycleBonus { get; set; }
+
+    public bool HasUsableSecondaryInputs => SecondaryConsumption?.Any(item =>
+        !string.IsNullOrWhiteSpace(item.Key) &&
+        double.IsFinite(item.Value) &&
+        item.Value > 0) == true;
+
+    /// <summary>
     /// 每分钟产出量 = amount / time * 60
     /// </summary>
     public double OutputPerMinute => Time > 0 ? Amount / Time * 60 : 0;
 }
+
+/// <summary>生产配方中的原始效果属性；nullable 用于区分缺失属性与显式 0。</summary>
+public sealed record ProductionEffect(string Type, double? Product, double? Cycle);
 
 /// <summary>
 /// 某种经济商品作为舰船、装备或可装载消耗品直接建造材料的来源记录。

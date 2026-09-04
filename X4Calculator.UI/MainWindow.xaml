@@ -89,9 +89,27 @@
                                     </Style.Triggers>
                                 </Style>
                             </StackPanel.Style>
-                        <TextBlock Text="选择上方标签页即可先了解可用功能。游戏数据准备完成后，数据相关页面会自动切换为实际内容。"
-                                   Margin="0 16 0 0" FontSize="15" Foreground="{StaticResource TextSecondaryBrush}"
-                                   TextWrapping="Wrap" TextAlignment="Center"/>
+                        <Button x:Name="DeleteAndReextractDataButton" Content="删除当前数据并重新解包数据"
+                                Command="{Binding DeleteAndReextractGameDataCommand}"
+                                Style="{StaticResource ActionButton}" HorizontalAlignment="Center"
+                                Visibility="{Binding DataLoaded, Converter={StaticResource BoolToVisibilityConverter}}"
+                                AutomationProperties.AutomationId="home.delete-and-reextract"/>
+                        <TextBlock x:Name="HomeDataStatusText" Margin="0 16 0 0" FontSize="15"
+                                   TextWrapping="Wrap" TextAlignment="Center"
+                                   AutomationProperties.AutomationId="home.data-status">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="选择上方标签页即可先了解可用功能。游戏数据准备完成后，数据相关页面会自动切换为实际内容。"/>
+                                    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DataLoaded}" Value="True">
+                                            <Setter Property="Text" Value="数据加载完成！"/>
+                                            <Setter Property="Foreground" Value="{StaticResource AccentGreenBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                         <Button x:Name="ReloadDataButton" Content="重新加载数据" Command="{Binding LoadDataCommand}"
                                 Style="{StaticResource ActionButton}" HorizontalAlignment="Center" Margin="0 16 0 0"
                                 Visibility="{Binding DataLoaded, Converter={StaticResource BoolToVisibilityConverter}}"
