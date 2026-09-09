@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:local="clr-namespace:X4Calculator.UI.Views"
              mc:Ignorable="d" d:DesignHeight="620" d:DesignWidth="1060">
     <UserControl.Resources>
         <Style x:Key="SelectorButton" TargetType="Button" BasedOn="{StaticResource ActionButton}">
@@ -183,7 +184,7 @@
             <!-- 完整链路和箭头共享同一滚动坐标系。 -->
             <ScrollViewer x:Name="ChainScrollViewer" Grid.Row="4" VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Auto" ScrollChanged="ChainScrollViewer_ScrollChanged">
-                <Grid x:Name="ChainGraphRoot" MinWidth="900">
+                <Grid x:Name="ChainGraphRoot" MinWidth="900" MinHeight="{Binding ViewportHeight, ElementName=ChainScrollViewer}">
                     <Canvas x:Name="ConnectionCanvas" IsHitTestVisible="False" Panel.ZIndex="0"/>
                     <ItemsControl x:Name="ChainColumnsControl" ItemsSource="{Binding ChainColumns}" Panel.ZIndex="1">
                         <ItemsControl.ItemsPanel>
@@ -204,19 +205,30 @@
                                     <ItemsControl ItemsSource="{Binding Wares}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Tag="{Binding Id}" Loaded="ChainNode_Loaded" Unloaded="ChainNode_Unloaded"
+                                                <local:ProductionChainCard Tag="{Binding Id}" Loaded="ChainNode_Loaded" Unloaded="ChainNode_Unloaded"
+                                                        AutomationProperties.AutomationId="{Binding Id, StringFormat=production.chain.node.{0}}"
+                                                        ToolTip="悬停查看直接原料；长按鼠标左键拖动卡片"
+                                                        MouseEnter="ChainNode_MouseEnter" MouseLeave="ChainNode_MouseLeave"
+                                                        MouseLeftButtonDown="ChainNode_MouseLeftButtonDown"
+                                                        MouseMove="ChainNode_MouseMove" MouseLeftButtonUp="ChainNode_MouseLeftButtonUp"
+                                                        LostMouseCapture="ChainNode_LostMouseCapture"
                                                         SizeChanged="ChainNode_SizeChanged" CornerRadius="7" Padding="9 3.5" Margin="0 0 0 6"
                                                         Width="{Binding CardWidth}" HorizontalAlignment="Left">
                                                     <Border.Style>
                                                         <Style TargetType="Border">
                                                             <Setter Property="Background" Value="{StaticResource CardSurfaceBrush}"/>
                                                             <Setter Property="BorderBrush" Value="{StaticResource Surface1Brush}"/>
+                                                            <Setter Property="BorderThickness" Value="2"/>
                                                             <Style.Triggers>
                                                                 <DataTrigger Binding="{Binding IsTarget}" Value="True">
                                                                     <Setter Property="Background" Value="{StaticResource ChainSelectedBrush}"/>
                                                                     <Setter Property="BorderBrush" Value="{StaticResource AccentBlueBrush}"/>
                                                                     <Setter Property="BorderThickness" Value="2"/>
                                                                 </DataTrigger>
+                                                                <Trigger Property="local:ProductionChainView.IsHighlighted" Value="True">
+                                                                    <Setter Property="Background" Value="{StaticResource SelectionBlueBrush}"/>
+                                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBlueBrush}"/>
+                                                                </Trigger>
                                                             </Style.Triggers>
                                                         </Style>
                                                     </Border.Style>
@@ -239,7 +251,7 @@
                                                         <TextBlock Grid.Row="1" Text="{Binding Subtitle}" Foreground="{StaticResource TextMutedBrush}"
                                                                    FontSize="10" Margin="0 3 0 0" TextTrimming="CharacterEllipsis"/>
                                                     </Grid>
-                                                </Border>
+                                                </local:ProductionChainCard>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>

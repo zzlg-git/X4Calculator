@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation.Peers;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
@@ -14,10 +16,46 @@ public partial class ProductionChainView : UserControl
         new(StringComparer.OrdinalIgnoreCase);
     private ProductionChainViewModel? _viewModel;
     private bool _drawQueued;
+    private string? _hoveredWareId;
+    private FrameworkElement? _pressedNode;
+    private Point _pressPoint;
+    private Point _nodeOrigin;
+    private bool _dragging;
+    private readonly DispatcherTimer _holdTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
+
+    public static readonly DependencyProperty IsHighlightedProperty = DependencyProperty.RegisterAttached(
+        "IsHighlighted", typeof(bool), typeof(ProductionChainView), new PropertyMetadata(false));
+
+    public static bool GetIsHighlighted(DependencyObject element) => (bool)element.GetValue(IsHighlightedProperty);
+    public static void SetIsHighlighted(DependencyObject element, bool value) => element.SetValue(IsHighlightedProperty, value);
 
     public ProductionChainView()
     {
         InitializeComponent();
+        _holdTimer.Tick += (_, _) =>
+        {
+            _holdTimer.Stop();
+            if (_pressedNode == null || Mouse.LeftButton != MouseButtonState.Pressed)
+            {
+                EndDrag();
+                return;
+            }
+            _dragging = true;
+            _pressedNode.Cursor = Cursors.SizeAll;
+            // 提升每个条目容器的层级，使卡片能够跨越层级和行边界。
+            for (DependencyObject child = _pressedNode; child != ChainColumnsControl;)
+            {
+                var parent = VisualTreeHelper.GetParent(child);
+                if (parent == null) break;
+                if (parent is Panel panel && child is UIElement element)
+                {
+                    foreach (UIElement sibling in panel.Children) Panel.SetZIndex(sibling, 0);
+                    Panel.SetZIndex(element, 1);
+                }
+                child = parent;
+            }
+        };
+        Unloaded += (_, _) => ResetInteraction();
         Loaded += (_, _) => BindViewModel();
         SizeChanged += (_, _) => QueueDrawConnections();
         DataContextChanged += (_, _) => BindViewModel();
@@ -39,6 +77,7 @@ public partial class ProductionChainView : UserControl
 
         if (_viewModel != null)
             _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        ResetInteraction();
         _viewModel = nextViewModel;
         if (_viewModel != null)
             _viewModel.PropertyChanged += ViewModel_PropertyChanged;
@@ -50,6 +89,7 @@ public partial class ProductionChainView : UserControl
     {
         if (e.PropertyName is nameof(ProductionChainViewModel.ChainEdges) or nameof(ProductionChainViewModel.HasChain))
         {
+            ResetInteraction();
             QueueDrawConnections();
         }
     }
@@ -66,12 +106,102 @@ public partial class ProductionChainView : UserControl
         if (sender is FrameworkElement element && element.Tag is string wareId &&
             _nodeElements.TryGetValue(wareId, out var registered) && ReferenceEquals(registered, element))
         {
+            if (ReferenceEquals(_pressedNode, element)) EndDrag();
             _nodeElements.Remove(wareId);
         }
         QueueDrawConnections();
     }
 
     private void ChainNode_SizeChanged(object sender, SizeChangedEventArgs e) => QueueDrawConnections();
+
+    private void ChainNode_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (_pressedNode != null) return;
+        _hoveredWareId = (sender as FrameworkElement)?.Tag as string;
+        QueueDrawConnections();
+    }
+
+    private void ChainNode_MouseLeave(object sender, MouseEventArgs e)
+    {
+        if (_pressedNode != null) return;
+        _hoveredWareId = null;
+        QueueDrawConnections();
+    }
+
+    private void ChainNode_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        EndDrag();
+        if (sender is not FrameworkElement node || !node.CaptureMouse()) return;
+        _pressedNode = node;
+        _pressPoint = e.GetPosition(ChainGraphRoot);
+        _nodeOrigin = node.TranslatePoint(new Point(), ChainGraphRoot);
+        _hoveredWareId = node.Tag as string;
+        _holdTimer.Start();
+        e.Handled = true;
+    }
+
+    private void ChainNode_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_pressedNode == null) return;
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            EndDrag();
+            return;
+        }
+        var delta = e.GetPosition(ChainGraphRoot) - _pressPoint;
+        if (!_dragging)
+        {
+            // 长按完成前发生移动时取消本次手势。
+            if (Math.Abs(delta.X) > SystemParameters.MinimumHorizontalDragDistance ||
+                Math.Abs(delta.Y) > SystemParameters.MinimumVerticalDragDistance)
+                EndDrag();
+            return;
+        }
+        var node = _pressedNode;
+        var current = node.TranslatePoint(new Point(), ChainGraphRoot);
+        var transform = node.RenderTransform as TranslateTransform;
+        if (transform == null)
+            node.RenderTransform = transform = new TranslateTransform();
+        var x = Math.Clamp(_nodeOrigin.X + delta.X, 0, Math.Max(0, ChainGraphRoot.ActualWidth - node.ActualWidth));
+        var y = Math.Clamp(_nodeOrigin.Y + delta.Y, 24, Math.Max(24, ChainGraphRoot.ActualHeight - node.ActualHeight - 6));
+        transform.X += x - current.X;
+        transform.Y += y - current.Y;
+        QueueDrawConnections();
+        e.Handled = true;
+    }
+
+    private void ChainNode_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_pressedNode == null) return;
+        EndDrag();
+        e.Handled = true;
+    }
+
+    private void ChainNode_LostMouseCapture(object sender, MouseEventArgs e) => EndDrag();
+
+    private void EndDrag()
+    {
+        _holdTimer.Stop();
+        var node = _pressedNode;
+        _pressedNode = null;
+        _dragging = false;
+        if (node == null) return;
+        node.ClearValue(CursorProperty);
+        if (node.IsMouseCaptured) node.ReleaseMouseCapture();
+        _hoveredWareId = _nodeElements.Values.FirstOrDefault(element => element.IsMouseOver)?.Tag as string;
+        QueueDrawConnections();
+    }
+
+    private void ResetInteraction()
+    {
+        EndDrag();
+        _hoveredWareId = null;
+        foreach (var node in _nodeElements.Values)
+        {
+            node.ClearValue(RenderTransformProperty);
+            SetIsHighlighted(node, false);
+        }
+    }
 
     private void ChainScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
@@ -97,6 +227,17 @@ public partial class ProductionChainView : UserControl
         _nodeElements.Clear();
         CollectNodeElements(ChainGraphRoot);
 
+        var highlightedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_hoveredWareId != null)
+        {
+            highlightedIds.Add(_hoveredWareId);
+            foreach (var edge in _viewModel.ChainEdges.Where(edge =>
+                         string.Equals(edge.TargetWareId, _hoveredWareId, StringComparison.OrdinalIgnoreCase)))
+                highlightedIds.Add(edge.SourceWareId);
+        }
+        foreach (var (id, node) in _nodeElements)
+            SetIsHighlighted(node, highlightedIds.Contains(id));
+
         foreach (var edge in _viewModel.ChainEdges)
         {
             if (!_nodeElements.TryGetValue(edge.SourceWareId, out var source) ||
@@ -120,15 +261,18 @@ public partial class ProductionChainView : UserControl
                 ], false)
             ]);
 
+            var highlighted = string.Equals(edge.TargetWareId, _hoveredWareId, StringComparison.OrdinalIgnoreCase);
             ConnectionCanvas.Children.Add(new Path
             {
+                Tag = edge,
                 Data = geometry,
-                Stroke = (Brush)FindResource("GraphConnectorBrush"),
-                StrokeThickness = 1.5
+                Stroke = (Brush)FindResource(highlighted ? "AccentBlueBrush" : "GraphConnectorBrush"),
+                StrokeThickness = highlighted ? 3 : 1.5
             });
             ConnectionCanvas.Children.Add(new Polygon
             {
-                Fill = (Brush)FindResource("GraphArrowBrush"),
+                Tag = edge,
+                Fill = (Brush)FindResource(highlighted ? "AccentBlueBrush" : "GraphArrowBrush"),
                 Points = [end, new Point(end.X - 8, end.Y - 4), new Point(end.X - 8, end.Y + 4)]
             });
         }
@@ -144,4 +288,10 @@ public partial class ProductionChainView : UserControl
             CollectNodeElements(child);
         }
     }
+}
+
+/// <summary>向桌面自动化公开的图形卡片，包含变换后的边界。</summary>
+public sealed class ProductionChainCard : Border
+{
+    protected override AutomationPeer OnCreateAutomationPeer() => new FrameworkElementAutomationPeer(this);
 }
