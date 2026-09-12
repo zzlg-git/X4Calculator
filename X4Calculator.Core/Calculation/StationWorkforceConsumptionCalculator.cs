@@ -52,12 +52,6 @@ public sealed class StationWorkforceConsumptionCalculator
         var allBuiltWeights = GetAllBuiltRaceWeights(station);
         if (allBuiltWeights.Count == 0)
             allBuiltWeights = currentPopulationByMethod;
-        if (allBuiltWeights.Count == 0 && allBuiltRequired > 0)
-            allBuiltWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["default"] = 1
-            };
-
         var allBuiltBusyByMethod = ScalePopulation(allBuiltWeights, allBuiltRequired);
         var allBuilt = CalculateConsumption(
             allBuiltBusyByMethod,

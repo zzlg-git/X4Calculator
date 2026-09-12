@@ -32,6 +32,8 @@ public class StarMapDB
 
     /// <summary>存档中扫描到的门实例（含动态门）。</summary>
     public List<SaveGateInstance> SaveGates { get; } = new();
+    private readonly Dictionary<string, (string? Code, string? Target)> _staticGateIdentity =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>当前导入存档中的玩家空间站。</summary>
     public List<Station> PlayerStations { get; } = new();
@@ -95,7 +97,7 @@ public class StarMapDB
         @"connection_ClusterGate(?<src>\d+)To(?<dst>\d+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    // Sector macro：Cluster_NN_SectorNNN_macro
+    // 扇区 macro：Cluster_NN_SectorNNN_macro
     private static readonly Regex SectorMacroRegex = new(
         @"Cluster_(\d+)_Sector(\d+)_macro",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -120,7 +122,12 @@ public class StarMapDB
     /// </summary>
     /// <param name="gameDataPath">GameData 根目录路径。</param>
     /// <param name="saveFilePath">可选存档文件路径，提供后流式扫描门实例。</param>
-    public async Task LoadAsync(string gameDataPath, string? saveFilePath = null)
+    public Task LoadAsync(string gameDataPath, string? saveFilePath = null) =>
+        LoadAsync(gameDataPath, saveFilePath, null);
+
+    /// <summary>加载星图并使用调用方的有效 XML 解析器补全宏默认存档姿态。</summary>
+    public async Task LoadAsync(string gameDataPath, string? saveFilePath,
+        SavegameGateTransformResolver? gateTransformResolver)
     {
         var dataDir = ResolveDataDir(gameDataPath);
 
@@ -163,8 +170,10 @@ public class StarMapDB
         {
             var scanner = new SavegameGateScanner();
             var saveGates = await scanner.ScanAsync(saveFilePath);
-            SaveGates.AddRange(saveGates);
-            MergeSaveGates(saveGates);
+            if (gateTransformResolver is not null)
+                foreach (var gate in saveGates)
+                    gateTransformResolver.Resolve(gate).ApplyTo(gate);
+            ReplaceSaveGates(saveGates);
         }
     }
 
@@ -266,6 +275,7 @@ public class StarMapDB
         ReplacePlayerStations(result.Stations);
         ReplaceNpcStations(result.NpcStations);
         ReplaceSaveMapObjects(result.MapObjects);
+        ReplaceSaveGates(result.GateInstances);
         PlayerStationsChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -1555,7 +1565,25 @@ public class StarMapDB
     /// <summary>
     /// 将存档中扫描到的门实例合并回静态星门：标注 FoundInSave、回填 Code 与 TargetGateId。
     /// </summary>
-    private void MergeSaveGates(List<SaveGateInstance> saveGates)
+    private void ReplaceSaveGates(IReadOnlyList<SaveGateInstance> saveGates)
+    {
+        foreach (var gate in Gates.Values)
+        {
+            if (!_staticGateIdentity.TryGetValue(gate.Id, out var original))
+                _staticGateIdentity[gate.Id] = original = (gate.Code, gate.TargetGateId);
+            gate.Code = original.Code;
+            gate.TargetGateId = original.Target;
+            gate.FoundInSave = false;
+            gate.SaveGateZoneTransform = null;
+            gate.SaveZoneSectorTransform = null;
+            gate.SaveGateSectorTransform = null;
+        }
+        SaveGates.Clear();
+        SaveGates.AddRange(saveGates);
+        MergeSaveGates(saveGates);
+    }
+
+    private void MergeSaveGates(IReadOnlyList<SaveGateInstance> saveGates)
     {
         var gateByComponentId = saveGates
             .Where(g => !string.IsNullOrEmpty(g.ComponentId))
@@ -1569,6 +1597,9 @@ public class StarMapDB
             {
                 gate.FoundInSave = true;
                 if (string.IsNullOrEmpty(gate.Code)) gate.Code = sg.Code;
+                gate.SaveGateZoneTransform = sg.GateZoneTransform;
+                gate.SaveZoneSectorTransform = sg.ZoneSectorTransform;
+                gate.SaveGateSectorTransform = sg.GateSectorTransform;
             }
 
             // 补全目标门 ID：destination 指向目标门组件 id

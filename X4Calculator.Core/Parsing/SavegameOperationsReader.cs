@@ -29,6 +29,7 @@ internal static class SavegameOperationsReader
         var queuedOrdersByActiveOrder = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var npcStationStates = new List<NpcStationState>();
         var mapObjectStates = new List<MapObjectState>();
+        var anomalyStatesById = new Dictionary<string, MapObjectState>(StringComparer.OrdinalIgnoreCase);
 
         var elementNames = new string?[512];
         var components = new ComponentState?[512];
@@ -52,6 +53,10 @@ internal static class SavegameOperationsReader
         BuildStorageState? activeBuildStorage = null;
         int? playerDefaultBuyTradeRuleId = null;
         var galaxyDepth = -1;
+        var leapOfFaithAnomalyId = string.Empty;
+        var mdDepth = -1;
+        var dlcPirateScriptDepth = -1;
+        var dlcPirateWaveCueDepth = -1;
 
         using var stream = SavegameFile.OpenRead(saveFilePath);
         using var reader = XmlReader.Create(stream, new XmlReaderSettings
@@ -71,6 +76,24 @@ internal static class SavegameOperationsReader
             if (reader.NodeType == XmlNodeType.Element)
             {
                 elementNames[reader.Depth] = reader.Name;
+
+                if (reader.Name == "md" && mdDepth < 0)
+                    mdDepth = reader.Depth;
+                else if (mdDepth >= 0 && reader.Name == "script" && reader.Depth == mdDepth + 1 &&
+                    string.Equals(reader.GetAttribute("name"), "Setup_DLC_Pirate", StringComparison.Ordinal))
+                    dlcPirateScriptDepth = reader.Depth;
+                else if (dlcPirateScriptDepth >= 0 && reader.Name == "cue" &&
+                         reader.Depth == dlcPirateScriptDepth + 1 &&
+                         string.Equals(reader.GetAttribute("name"), "TheWave", StringComparison.Ordinal))
+                    dlcPirateWaveCueDepth = reader.Depth;
+
+                if (dlcPirateWaveCueDepth >= 0 && reader.Name == "value" &&
+                    reader.Depth == dlcPirateWaveCueDepth + 2 &&
+                    elementNames[reader.Depth - 1] == "vars" &&
+                    string.Equals(reader.GetAttribute("name"), "$AnomaliesS2toS3", StringComparison.Ordinal) &&
+                    string.Equals(reader.GetAttribute("type"), "component", StringComparison.OrdinalIgnoreCase) &&
+                    reader.GetAttribute("value") is { Length: > 0 } targetId)
+                    leapOfFaithAnomalyId = targetId;
 
                 if (reader.Name == "faction" && string.Equals(reader.GetAttribute("id"), "player", StringComparison.OrdinalIgnoreCase))
                     playerFactionDepth = reader.Depth;
@@ -142,16 +165,36 @@ internal static class SavegameOperationsReader
 
                     var parentComponent = FindNearestAncestor(components, reader.Depth);
                     if (string.Equals(parentComponent?.Class, "zone", StringComparison.OrdinalIgnoreCase) &&
-                        string.Equals(reader.GetAttribute("connection"), "space", StringComparison.OrdinalIgnoreCase) &&
-                        TryGetMapObjectKind(component, out var mapObjectKind))
+                        string.Equals(reader.GetAttribute("connection"), "space", StringComparison.OrdinalIgnoreCase))
                     {
-                        mapObjectStates.Add(new MapObjectState
+                        var mapObjectState = new MapObjectState
                         {
                             Object = component,
                             Sector = FindAncestor(components, reader.Depth, "sector"),
-                            Zone = parentComponent,
-                            Kind = mapObjectKind
-                        });
+                            Zone = parentComponent
+                        };
+                        if (TryGetMapObjectKind(component, out var mapObjectKind))
+                        {
+                            mapObjectState.Kind = mapObjectKind;
+                            mapObjectStates.Add(mapObjectState);
+                        }
+                    }
+
+                    // 剧情异常点位于 Sector 的 triggerobjects，不保证是 Zone 的直属 space 对象。
+                    // 先按运行时 component ID 暂存，稍后只接受 TheWave 的 MD 变量所指向的实例。
+                    if (component.Class.Equals("anomaly", StringComparison.OrdinalIgnoreCase) &&
+                        !string.IsNullOrWhiteSpace(component.Id) &&
+                        FindAncestor(components, reader.Depth, "sector") is { } anomalySector &&
+                        (string.Equals(parentComponent?.Class, "sector", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(parentComponent?.Class, "zone", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        anomalyStatesById[component.Id] = new MapObjectState
+                        {
+                            Object = component,
+                            Sector = anomalySector,
+                            Zone = FindAncestor(components, reader.Depth, "zone"),
+                            Kind = SaveMapObjectKind.LeapOfFaithAnomaly
+                        };
                     }
 
                     if (activeStation == null && stationById.TryGetValue(component.Id, out var foundStation))
@@ -224,6 +267,11 @@ internal static class SavegameOperationsReader
                     components[reader.Depth - 2] is { } offsetComponent)
                     offsetComponent.Offset = ReadPosition(reader);
 
+                if (reader.Name == "effect" &&
+                    string.Equals(reader.GetAttribute("effect"), "wormhole_active", StringComparison.OrdinalIgnoreCase) &&
+                    FindAncestor(components, reader.Depth, "anomaly") is { } activeAnomaly)
+                    activeAnomaly.IsActive = true;
+
                 if (activeNpcStation != null)
                     ReadNpcStationElement(reader, elementNames, activeNpcStationDepth, activeNpcStation);
 
@@ -270,6 +318,7 @@ internal static class SavegameOperationsReader
                 if (reader.IsEmptyElement)
                 {
                     FinishEmptyElement(reader.Depth, reader.Name);
+                    ClearMdScopeForEmptyElement(reader.Depth, reader.Name);
                     elementNames[reader.Depth] = null;
                     if (reader.Name == "component") components[reader.Depth] = null;
                 }
@@ -279,9 +328,14 @@ internal static class SavegameOperationsReader
                 FinishElement(reader.Depth, reader.Name);
                 elementNames[reader.Depth] = null;
                 if (reader.Name == "component") components[reader.Depth] = null;
-                if (reader.Name == "component" && reader.Depth == galaxyDepth) break;
+                if (reader.Name == "component" && reader.Depth == galaxyDepth) galaxyDepth = -1;
+                ClearMdScopeForEmptyElement(reader.Depth, reader.Name);
             }
         }
+
+        if (!string.IsNullOrWhiteSpace(leapOfFaithAnomalyId) &&
+            anomalyStatesById.TryGetValue(leapOfFaithAnomalyId, out var leapOfFaithAnomaly))
+            mapObjectStates.Add(leapOfFaithAnomaly);
 
         ResolveManagers(stations, stationStates, npcs);
         ResolveSubordinates(stations, stationStates, shipsByCommanderConnection);
@@ -311,6 +365,17 @@ internal static class SavegameOperationsReader
             if (name == "blacklist") FinishBlacklist(depth);
             if (name == "build") FinishBuild(depth);
             if (name == "faction" && depth == playerFactionDepth) playerFactionDepth = -1;
+        }
+
+        void ClearMdScopeForEmptyElement(int depth, string name)
+        {
+            if (name == "cue" && depth == dlcPirateWaveCueDepth) dlcPirateWaveCueDepth = -1;
+            if (name == "script" && depth == dlcPirateScriptDepth)
+            {
+                dlcPirateWaveCueDepth = -1;
+                dlcPirateScriptDepth = -1;
+            }
+            if (name == "md" && depth == mdDepth) mdDepth = -1;
         }
 
         void FinishConnection(int depth, string name)
@@ -605,8 +670,8 @@ internal static class SavegameOperationsReader
                  reader.GetAttribute("ware") is { } requiredWare &&
                  IsInsideBuildProcessor(components, buildStorageDepth, reader.Depth))
         {
-            // Only direct resources/ware nodes are quantities. resources/insufficient/ware@amount
-            // is a shortage start time in real saves and is deliberately excluded by the parent check.
+            // 只有 resources/ware 直接子节点表示数量。真实存档中的
+            // resources/insufficient/ware@amount 表示短缺开始时间，因此由父节点检查明确排除。
             var ware = GetBuildStorageWare(state, requiredWare);
             if (parent == "resources")
                 ware.CurrentBuildResourceAmount += ReadLong(reader.GetAttribute("amount"));
@@ -808,8 +873,8 @@ internal static class SavegameOperationsReader
         if (string.Equals(storage.BuildState, "building", StringComparison.OrdinalIgnoreCase) &&
             storage.BuildSteps > 0 && storage.BuildStep > 0)
         {
-            // Validated against building autosave samples: step/steps is the consumed share of the
-            // current module. The native PrepareBuildSequenceResources2 implementation is not available.
+            // 已通过建造自动存档样本验证：step/steps 表示当前模块已消耗的份额。
+            // 原生 PrepareBuildSequenceResources2 的实现目前不可用。
             var completedSteps = Math.Min(storage.BuildStep, storage.BuildSteps);
             current -= (long)Math.Floor((decimal)current * completedSteps / storage.BuildSteps);
         }
@@ -899,6 +964,7 @@ internal static class SavegameOperationsReader
                 SaveMapObjectKind.OwnerlessShip => component.Macro,
                 SaveMapObjectKind.DataVault => "数据保险库",
                 SaveMapObjectKind.ErlkingDataVault => "妖王数据保险库",
+                SaveMapObjectKind.LeapOfFaithAnomaly => "信仰之跃异常点",
                 _ => component.Macro
             };
         }
@@ -913,7 +979,8 @@ internal static class SavegameOperationsReader
             Kind = state.Kind,
             SectorId = state.Sector?.Macro ?? string.Empty,
             ZoneId = state.Zone?.Macro ?? string.Empty,
-            SectorPosition = (state.Zone?.Offset ?? Vec3.Zero) + component.Offset
+            SectorPosition = (state.Zone?.Offset ?? Vec3.Zero) + component.Offset,
+            IsActive = component.IsActive
         };
     }).ToArray();
 
@@ -1072,6 +1139,7 @@ internal static class SavegameOperationsReader
         public Vec3 Offset { get; set; }
         public string ConstructionEntryId { get; init; } = string.Empty;
         public string RuntimeState { get; init; } = string.Empty;
+        public bool IsActive { get; set; }
     }
 
     private sealed class NpcStationState
@@ -1088,7 +1156,7 @@ internal static class SavegameOperationsReader
         public required ComponentState Object { get; init; }
         public ComponentState? Sector { get; init; }
         public ComponentState? Zone { get; init; }
-        public SaveMapObjectKind Kind { get; init; }
+        public SaveMapObjectKind Kind { get; set; }
     }
 
     private sealed class ShipState

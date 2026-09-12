@@ -709,6 +709,8 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
             AllStations().Select(item => item.Station),
             allocateIndexWhenMissing: _selectedStationItem?.IsPlanned == true);
         StationName = SelectedStation.Name;
+        // 命名器已直接更新 Station.Name，列表项 setter 的相等判断不会发出通知。
+        _selectedStationItem?.RefreshName();
     }
 
     private void AddModule(StationModuleDefinition? definition)
@@ -798,7 +800,7 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
 
         for (var pass = 0; pass < 512; pass++)
         {
-            var deficit = _planner.CalculateBalance(SelectedStation, GetCurrentWorkforce(_selectedStationItem))
+            var deficit = CalculateSelectedStationBalance()
                 .Where(item => item.Role != ProductionCatalogRole.Resource && item.PerMinute < -0.0000001 &&
                                !unresolvedWareIds.Contains(item.WareId))
                 .OrderBy(item => item.Role)
@@ -849,8 +851,7 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         double GetBalance(int totalCount)
         {
             candidate.Count = totalCount;
-            return _planner.CalculateBalance(
-                    SelectedStation, GetCurrentWorkforce(_selectedStationItem))
+            return CalculateSelectedStationBalance()
                 .FirstOrDefault(item => item.WareId.Equals(
                     wareId, StringComparison.OrdinalIgnoreCase))?.PerMinute ?? 0;
         }
@@ -940,7 +941,9 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         var calculationStation = CreateCalculationStation(_selectedStationItem!);
         var growth = CalculateWorkforceGrowth(_selectedStationItem, calculationStation);
         var workforce = _planner.CalculateWorkforce(calculationStation, growth.Current);
-        var moduleWorkforceCoverage = calculationStation.Modules.Count == 0 ? 0d : workforce.Coverage;
+        var moduleWorkforceCoverage = calculationStation.Modules.Count == 0
+            ? 0d
+            : Math.Clamp(calculationStation.WorkforceEfficiencyBonus ?? workforce.Coverage, 0d, 1d);
         var allBuiltRequired = _planner.CalculateWorkforceRequirements(SelectedStation).AllBuiltRequired;
         var hasIncompleteProduction = SelectedStation.Modules.Any(module =>
             GetUnbuiltModuleCount(_selectedStationItem!, module) > 0);
@@ -1003,11 +1006,12 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         WorkforceCapacityBonusText = FormatBonus(growth.CapacityBonus);
         WorkforceWelfareBonusText = FormatBonus(growth.WelfareBonus);
         AreStandardWorkforceGrowthInfluencesVisible =
-            growth.ActiveConstraint != StationWorkforceGrowthConstraint.Layoff;
+            growth.Current < growth.Target;
         WorkforceGrowthConstraintLabel = growth.ActiveConstraint switch
         {
             StationWorkforceGrowthConstraint.LimitedVacancies => "有限空缺",
             StationWorkforceGrowthConstraint.Layoff => "裁员",
+            StationWorkforceGrowthConstraint.NoVacancies => "没有空余位置",
             _ => "居住环境拥挤"
         };
         WorkforceGrowthConstraintText = FormatPenalty(growth.ActiveConstraintPenalty);
@@ -1063,7 +1067,9 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         var calculationStation = CreateCalculationStation(_selectedStationItem!);
         var workforce = _planner.CalculateWorkforce(
             calculationStation, GetCurrentWorkforce(_selectedStationItem));
-        var moduleWorkforceCoverage = calculationStation.Modules.Count == 0 ? 0d : workforce.Coverage;
+        var moduleWorkforceCoverage = calculationStation.Modules.Count == 0
+            ? 0d
+            : Math.Clamp(calculationStation.WorkforceEfficiencyBonus ?? workforce.Coverage, 0d, 1d);
         foreach (var item in Modules.Where(item => item.Production != null))
             item.SetWorkforceBonus(_planner.CalculateModuleWorkforceBonus(
                 item.Production!, moduleWorkforceCoverage));
@@ -1091,7 +1097,7 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
                 forceTotalDisplay: group.Any(item => IsWorkforceContribution(item.Contribution))));
         }
         CanAutoAddIntermediateProducts = SelectedStation.Modules.Count > 0 &&
-            _planner.CalculateBalance(SelectedStation, GetCurrentWorkforce(_selectedStationItem)).Any(item =>
+            CalculateSelectedStationBalance().Any(item =>
                 item.Role != ProductionCatalogRole.Resource && item.PerMinute < -0.0000001 &&
                 GetAutoAddCandidates(item.WareId).Any());
         OnPropertyChanged(nameof(CanAutoAddIntermediateProducts));
@@ -1357,7 +1363,9 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
             WorkforceByRace = new Dictionary<string, long>(source.WorkforceByRace, StringComparer.OrdinalIgnoreCase),
             WorkforceLastUpdateTimeSeconds = source.WorkforceLastUpdateTimeSeconds,
             WorkforceEfficiencyEndTimeSeconds = source.WorkforceEfficiencyEndTimeSeconds,
-            WorkforceEfficiencyBonus = source.WorkforceEfficiencyBonus,
+            // 勾选“跳过增长阶段”后，规划器必须按模拟到目标的人口重新计算覆盖率；
+            // 存档 bonus 只描述导入时的当前班次，不能继续覆盖模拟状态。
+            WorkforceEfficiencyBonus = item.SkipWorkforceGrowth ? null : source.WorkforceEfficiencyBonus,
             WareSettings = source.WareSettings,
             Modules = source.Modules.Select(module => new ProductionModule
             {
@@ -1396,8 +1404,6 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
                                 (double)definition.WorkforceCapacity * module.Count;
             }
         }
-        if (weights.Count == 0 && currentWorkforce > 0) weights["default"] = 1;
-
         var population = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         var totalWeight = weights.Values.Sum();
         var remaining = Math.Max(0, currentWorkforce);
@@ -1721,7 +1727,13 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
         var enabledRoutes = _transportNetwork.Routes.Where(route =>
             _transportSelections.TryGetValue(GetTransportRouteKey(route), out var selection) &&
             selection.IsSelected);
-        _transportFlows = _transportFlowCalculator.Calculate(_transportStationSnapshots, enabledRoutes);
+        var miningWareIds = _transportNetwork.Routes
+            .Select(route => route.WareId)
+            .Where(wareId => ResolveTransportStorageType(wareId) is
+                TransportStorageType.Solid or TransportStorageType.Liquid)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _transportFlows = _transportFlowCalculator.Calculate(
+            _transportStationSnapshots, enabledRoutes, unlimitedTradeWareIds: miningWareIds);
     }
 
     private void NotifyTransportEfficiencyChanged()
@@ -2022,6 +2034,12 @@ public sealed class StationPlanningViewModel : ViewModelBase, IStationTransportM
 
     private static bool IsWorkforceContribution(StationModuleContribution contribution) =>
         contribution.ModuleId.StartsWith("workforce:", StringComparison.OrdinalIgnoreCase);
+
+    private IReadOnlyList<StationBalanceItem> CalculateSelectedStationBalance() =>
+        _planner.CalculateBalance(
+            SelectedStation!,
+            GetCurrentWorkforce(_selectedStationItem),
+            useSavedWorkforceEfficiency: !(_selectedStationItem?.SkipWorkforceGrowth ?? false));
 
     private static int GetUnbuiltModuleCount(
         StationPlanningStationItemViewModel item,

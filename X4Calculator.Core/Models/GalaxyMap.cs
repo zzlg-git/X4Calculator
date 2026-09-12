@@ -31,6 +31,19 @@ public enum GateKind
     Accelerator
 }
 
+/// <summary>存档层级变换的证据来源；只有 MacroDefault 可由调用者提供的有效 XML 精确补全。</summary>
+public enum SaveGateTransformSource
+{
+    /// <summary>存档未序列化本层 offset，或层级不完整，不能推断。</summary>
+    Unknown,
+
+    /// <summary>存档显式序列化了本层 offset。</summary>
+    ExplicitSave,
+
+    /// <summary>存档以 <c>offset default="1"</c> 引用宏定义中的连接变换。</summary>
+    MacroDefault
+}
+
 /// <summary>
 /// 星区（Cluster），对应 galaxy.xml / clusters.xml 中的 Cluster_NN_macro。
 /// </summary>
@@ -171,6 +184,22 @@ public class GateInfo
     /// <summary>门在 Zone 内的局部坐标。</summary>
     public Vec3 LocalPos { get; set; }
 
+    /// <summary>
+    /// 导入存档中确认的 Gate→Zone 刚性变换。存档缺少显式层级 offset 时为 null，
+    /// 不能以恒等变换代替未知姿态。
+    /// </summary>
+    public X4RigidTransform? SaveGateZoneTransform { get; set; }
+
+    /// <summary>
+    /// 导入存档中确认的 Zone→Sector 刚性变换。存档缺少显式层级 offset 时为 null。
+    /// </summary>
+    public X4RigidTransform? SaveZoneSectorTransform { get; set; }
+
+    /// <summary>
+    /// 导入存档中确认的 Gate→Sector 刚性变换；仅当 Gate→Zone 与 Zone→Sector 都可确认时存在。
+    /// </summary>
+    public X4RigidTransform? SaveGateSectorTransform { get; set; }
+
     /// <summary>存档中的门代码（如 "RSY-973"），未扫描到则为 null。</summary>
     public string? Code { get; set; }
 
@@ -262,6 +291,43 @@ public class SaveGateInstance
     /// <summary>所在 Zone macro ID（通过连接路径链解析）。</summary>
     public string ZoneId { get; set; } = string.Empty;
 
-    /// <summary>destination 指向的组件 id（目标门）。</summary>
+    /// <summary>所在 Sector macro ID；为空表示存档层级不完整。</summary>
+    public string SectorMacro { get; set; } = string.Empty;
+
+    /// <summary>gate component 的 <c>connection</c> 属性，即 Gate macro 中的对应连接名。</summary>
+    public string GateConnectionName { get; set; } = string.Empty;
+
+    /// <summary>zone component 在 Sector 父级中的连接名。</summary>
+    public string ZoneParentConnectionName { get; set; } = string.Empty;
+
+    /// <summary>zone component 的 <c>connection</c> 属性，即 Zone macro 中的对应连接名。</summary>
+    public string ZoneConnectionName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 保存的 Gate→Zone 刚性变换。没有显式 gate offset 或层级不完整时为 null，
+    /// 不将未知姿态表示为 <see cref="X4RigidTransform.Identity"/>。
+    /// </summary>
+    public X4RigidTransform? GateZoneTransform { get; set; }
+
+    /// <summary>Gate→Zone 变换的证据来源。</summary>
+    public SaveGateTransformSource GateZoneTransformSource { get; set; }
+
+    /// <summary>
+    /// 保存的 Zone→Sector 刚性变换。没有显式 zone offset 或层级不完整时为 null。
+    /// </summary>
+    public X4RigidTransform? ZoneSectorTransform { get; set; }
+
+    /// <summary>Zone→Sector 变换的证据来源。</summary>
+    public SaveGateTransformSource ZoneSectorTransformSource { get; set; }
+
+    /// <summary>保存的 Gate→Sector 刚性变换；仅在两个相邻层级都可确认时存在。</summary>
+    public X4RigidTransform? GateSectorTransform { get; set; }
+
+    /// <summary>门所属连接及其 connected 引用；连接 id 不等于门组件 id。</summary>
+    public IReadOnlyList<SaveGateConnection> Connections { get; set; } = [];
+
+    /// <summary>经连接所有者映射解析的目标门组件 id；缺失或多义时为 null。</summary>
     public string? DestinationComponentId { get; set; }
 }
+
+public sealed record SaveGateConnection(string Name, string Id, IReadOnlyList<string> ConnectedConnectionIds);

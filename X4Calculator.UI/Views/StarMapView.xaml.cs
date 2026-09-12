@@ -27,7 +27,8 @@ public partial class StarMapView : UserControl
         KhaakStation,
         OwnerlessShip,
         DataVault,
-        ErlkingDataVault
+        ErlkingDataVault,
+        LeapOfFaithAnomaly
     }
 
     public static readonly DependencyProperty MapProperty = DependencyProperty.Register(
@@ -496,7 +497,8 @@ public partial class StarMapView : UserControl
                 NpcStationHighlight.KhaakStation => !isHighlightTarget,
             NpcStationHighlight.OwnerlessShip or
                 NpcStationHighlight.DataVault or
-                NpcStationHighlight.ErlkingDataVault => true,
+                NpcStationHighlight.ErlkingDataVault or
+                NpcStationHighlight.LeapOfFaithAnomaly => true,
             _ => false
         };
         var tint = shouldLowlight
@@ -544,10 +546,13 @@ public partial class StarMapView : UserControl
         }
         else
         {
-            var tint = mapObject.Kind == SaveMapObjectKind.DataVault
+            var tint = mapObject.Kind == SaveMapObjectKind.LeapOfFaithAnomaly
+                ? ((SolidColorBrush)FindResource("AccentPeachBrush")).Color
+                : mapObject.Kind == SaveMapObjectKind.DataVault
                 ? ((SolidColorBrush)FindResource("AccentBlueBrush")).Color
                 : ((SolidColorBrush)FindResource("AccentYellowBrush")).Color;
-            icon = CreateStationIcon("mapob_vault_closed", tint);
+            icon = CreateStationIcon(mapObject.Kind == SaveMapObjectKind.LeapOfFaithAnomaly
+                ? "mapob_anomaly" : "mapob_vault_closed", tint);
         }
 
         icon.Tag = mapObject;
@@ -707,10 +712,16 @@ public partial class StarMapView : UserControl
             SaveMapObjectKind.OwnerlessShip => $"无主舰船：{mapObject.Name}",
             SaveMapObjectKind.DataVault => "数据保险库",
             SaveMapObjectKind.ErlkingDataVault => "妖王数据保险库",
+            SaveMapObjectKind.LeapOfFaithAnomaly => "信仰之跃异常点",
             _ => mapObject.Name
         };
         if (!string.IsNullOrWhiteSpace(mapObject.Code)) title += $" ({mapObject.Code})";
         var details = new List<string> { title };
+        if (mapObject.Kind == SaveMapObjectKind.LeapOfFaithAnomaly)
+        {
+            details.Add("方向：贪婪 → 信仰之跃");
+            details.Add(mapObject.IsActive ? "存档快照：存在激活特效" : "存档快照：未发现激活特效");
+        }
         if (mapObject.Kind == SaveMapObjectKind.OwnerlessShip &&
             mapObject.ObjectClass.StartsWith("ship_", StringComparison.OrdinalIgnoreCase))
             details.Add($"尺寸：{mapObject.ObjectClass[5..].ToUpperInvariant()}");
@@ -751,6 +762,7 @@ public partial class StarMapView : UserControl
         NpcStationHighlight.OwnerlessShip => SaveMapObjectKind.OwnerlessShip,
         NpcStationHighlight.DataVault => SaveMapObjectKind.DataVault,
         NpcStationHighlight.ErlkingDataVault => SaveMapObjectKind.ErlkingDataVault,
+        NpcStationHighlight.LeapOfFaithAnomaly => SaveMapObjectKind.LeapOfFaithAnomaly,
         _ => null
     };
 
@@ -759,6 +771,7 @@ public partial class StarMapView : UserControl
         SaveMapObjectKind.OwnerlessShip => "ownerless-ship",
         SaveMapObjectKind.DataVault => "data-vault",
         SaveMapObjectKind.ErlkingDataVault => "erlking-data-vault",
+        SaveMapObjectKind.LeapOfFaithAnomaly => "leap-of-faith-anomaly",
         _ => "unknown"
     };
 
@@ -1276,6 +1289,7 @@ public partial class StarMapView : UserControl
             3 => NpcStationHighlight.OwnerlessShip,
             4 => NpcStationHighlight.DataVault,
             5 => NpcStationHighlight.ErlkingDataVault,
+            6 => NpcStationHighlight.LeapOfFaithAnomaly,
             _ => NpcStationHighlight.None
         };
         if (_showNpcStations && _db != null) BuildMap();

@@ -108,6 +108,12 @@ public sealed class StationPlanningStationItemViewModel : ViewModelBase
         }
     }
 
+    internal void RefreshName()
+    {
+        OnPropertyChanged(nameof(Name));
+        _changed?.Invoke(this);
+    }
+
     public bool FillWorkforceCapacity
     {
         get => _fillWorkforceCapacity;

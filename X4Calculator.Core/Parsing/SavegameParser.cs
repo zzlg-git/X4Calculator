@@ -42,7 +42,20 @@ public sealed class SavegameParser
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            return await Task.Run(() => ParseSavegame(saveFilePath, cancellationToken)).ConfigureAwait(false);
+            var result = await Task.Run(() => ParseSavegame(saveFilePath, cancellationToken)).ConfigureAwait(false);
+            var gates = await new SavegameGateScanner().ScanAsync(saveFilePath, cancellationToken).ConfigureAwait(false);
+            if (_gameData.HasEffectiveXmlSource)
+            {
+                var resolver = new SavegameGateTransformResolver(_gameData);
+                foreach (var gate in gates)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    resolver.Resolve(gate).ApplyTo(gate);
+                }
+            }
+            return new(result.Stations, result.SectorOwnerships, result.GameTimeSeconds,
+                result.PlayerBlueprintWareIds, result.NpcStations, result.MapObjects,
+                result.TerraformingPopulations, gates);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -201,6 +214,8 @@ public sealed class SavegameParser
         }
 
         var supplemental = SavegameOperationsReader.Populate(
+            saveFilePath, stations, _gameData, cancellationToken);
+        StationTransportTopologyReader.Populate(
             saveFilePath, stations, _gameData, cancellationToken);
         foreach (var station in stations)
             SynchronizeModulesWithConstructionSequence(station);

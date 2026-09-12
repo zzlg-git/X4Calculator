@@ -18,7 +18,8 @@ public sealed class SavegameImportResult
         IEnumerable<string>? playerBlueprintWareIds = null,
         IReadOnlyList<NpcStation>? npcStations = null,
         IReadOnlyList<SaveMapObject>? mapObjects = null,
-        IReadOnlyList<TerraformingPopulation>? terraformingPopulations = null)
+        IReadOnlyList<TerraformingPopulation>? terraformingPopulations = null,
+        IReadOnlyList<SaveGateInstance>? gateInstances = null)
     {
         Stations = stations;
         SectorOwnerships = sectorOwnerships;
@@ -28,6 +29,7 @@ public sealed class SavegameImportResult
         NpcStations = npcStations ?? [];
         MapObjects = mapObjects ?? [];
         TerraformingPopulations = terraformingPopulations ?? [];
+        GateInstances = gateInstances ?? [];
     }
 
     public IReadOnlyList<Station> Stations { get; }
@@ -44,7 +46,7 @@ public sealed class SavegameImportResult
     /// <summary>全部非玩家空间站的轻量星图快照；不进入玩家站生产与运输模型。</summary>
     public IReadOnlyList<NpcStation> NpcStations { get; }
 
-    /// <summary>无主舰船、数据保险库和妖王数据保险库的轻量星图快照。</summary>
+    /// <summary>无主舰船、数据保险库、妖王数据保险库和信仰之跃异常点的轻量星图快照。</summary>
     public IReadOnlyList<SaveMapObject> MapObjects { get; }
 
     /// <summary>
@@ -52,4 +54,6 @@ public sealed class SavegameImportResult
     /// WorldPart 对应 terraforming@part，由星图按 Sector 的 world@factor 投影。
     /// </summary>
     public IReadOnlyList<TerraformingPopulation> TerraformingPopulations { get; }
+    /// <summary>同一存档的门实例；宏默认姿态只在有效 XML 连接闭合时补全。</summary>
+    public IReadOnlyList<SaveGateInstance> GateInstances { get; }
 }

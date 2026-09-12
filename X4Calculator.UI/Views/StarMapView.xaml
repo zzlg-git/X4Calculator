@@ -84,6 +84,7 @@
                         <ComboBoxItem Content="无主舰船"/>
                         <ComboBoxItem Content="数据保险库"/>
                         <ComboBoxItem Content="妖王数据保险库"/>
+                        <ComboBoxItem Content="信仰之跃异常点"/>
                     </ComboBox>
                 </StackPanel>
             </Border>

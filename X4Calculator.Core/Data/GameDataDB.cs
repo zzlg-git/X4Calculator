@@ -111,12 +111,66 @@ public class GameDataDB
     private X4EffectiveDataProvider? _effectiveData;
     private string? _effectiveDataRoot;
 
+    /// <summary>
+    /// 当前实例是否已经建立可供窄 XML 查询使用的游戏数据索引。
+    /// </summary>
+    internal bool HasEffectiveXmlSource => _effectiveData != null && _indexedDataDir != null;
+
     // 多个舰船/引擎宏会复用同一个组件或仓储宏，只解析一次。
     private readonly Dictionary<string, ShipComponentData> _shipComponentData = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IReadOnlyList<string>> _engineSlotTagsByComponent = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, StorageCargoData> _storageCargoByMacro = new(StringComparer.OrdinalIgnoreCase);
 
     public GameDataDB() { }
+
+    /// <summary>
+    /// 物化一个最终有效的 X4 虚拟 XML 路径。返回的文档由调用方独占，可以安全修改。
+    /// </summary>
+    public XDocument GetEffectiveXml(string virtualPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(virtualPath);
+        if (_effectiveData == null)
+            throw new InvalidOperationException("GameDataDB 尚未通过 LoadAsync 建立有效 XML 数据源。");
+
+        var result = _effectiveData.LoadXml(virtualPath);
+        if (result.HasErrors) throw CreateEffectiveDataException(result);
+        if (result.Document == null)
+            throw new KeyNotFoundException($"GameData 中不存在有效 XML：{result.VirtualPath}");
+        return new XDocument(result.Document);
+    }
+
+    /// <summary>
+    /// 通过最终有效 macro 索引读取包含指定定义的 XML 文档。返回文档由调用方独占。
+    /// </summary>
+    public XDocument GetEffectiveMacroXml(string macroId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(macroId);
+        EnsureEffectiveXmlSource();
+        var normalizedId = macroId.StartsWith("macro.", StringComparison.OrdinalIgnoreCase)
+            ? macroId["macro.".Length..]
+            : macroId;
+        if (!_macroPaths.TryGetValue(normalizedId, out var path))
+            throw new KeyNotFoundException($"GameData macro 索引中不存在：{normalizedId}");
+        return new XDocument(LoadDataDocument(path));
+    }
+
+    /// <summary>
+    /// 通过最终有效 component 索引读取包含指定定义的 XML 文档。返回文档由调用方独占。
+    /// </summary>
+    public XDocument GetEffectiveComponentXml(string componentId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(componentId);
+        EnsureEffectiveXmlSource();
+        if (!_componentPaths.TryGetValue(componentId, out var path))
+            throw new KeyNotFoundException($"GameData component 索引中不存在：{componentId}");
+        return new XDocument(LoadDataDocument(path));
+    }
+
+    private void EnsureEffectiveXmlSource()
+    {
+        if (!HasEffectiveXmlSource)
+            throw new InvalidOperationException("GameDataDB 尚未通过 LoadAsync 建立有效 XML 数据源。");
+    }
 
     private XDocument LoadDataDocument(string path)
     {

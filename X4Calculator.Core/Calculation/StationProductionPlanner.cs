@@ -37,9 +37,12 @@ public sealed class StationProductionPlanner
         _catalogPlanner = new ProductionChainPlanner(gameData);
     }
 
-    public IReadOnlyList<StationBalanceItem> CalculateBalance(Station station, long? currentWorkforce = null)
+    public IReadOnlyList<StationBalanceItem> CalculateBalance(
+        Station station,
+        long? currentWorkforce = null,
+        bool useSavedWorkforceEfficiency = true)
     {
-        return CalculateModuleContributions(station, currentWorkforce)
+        return CalculateModuleContributions(station, currentWorkforce, useSavedWorkforceEfficiency)
             .GroupBy(item => item.WareId, StringComparer.OrdinalIgnoreCase)
             .Select(group => new StationBalanceItem(group.Key, group.First().WareName,
                 group.Sum(item => item.PerMinute), group.Min(item => item.Role)))
@@ -288,8 +291,9 @@ public sealed class StationProductionPlanner
         _catalogPlanner.GetCatalogRole(ware, NormalizeLineage(lineage));
 
     /// <summary>
-    /// 为仓储等没有模块来源的货物复用生产链路角色：农业按站点当前劳动力种族，
-    /// 工业使用通用谱系。多种族中任一种族的终端商品均保持终端角色。
+    /// 为仓储等没有模块来源的货物复用生产链路角色：农业合并站点当前劳动力种族与
+    /// 有效居住容量的种族，使当前与全部建成的人口物资都按其实际谱系标记。工业使用
+    /// 通用谱系。多种族中任一种族的终端商品均保持终端角色。
     /// </summary>
     public ProductionCatalogRole GetStationWareRole(
         Station station,
@@ -303,6 +307,16 @@ public sealed class StationProductionPlanner
             .Select(item => item.Key)
             .Where(race => !string.IsNullOrWhiteSpace(race))
             .Select(NormalizeWorkforceLineage)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        workforceRaces = workforceRaces
+            .Concat(station.AdditionalModules
+                .Where(module => module.Count > 0 &&
+                    _gameData.StationModuleDefinitions.TryGetValue(module.ModuleId, out var definition) &&
+                    definition.WorkforceCapacity > 0)
+                .Select(module => _gameData.StationModuleDefinitions[module.ModuleId].Race)
+                .Where(race => !string.IsNullOrWhiteSpace(race))
+                .Select(NormalizeWorkforceLineage))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return workforceRaces.Length == 0

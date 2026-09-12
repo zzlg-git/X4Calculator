@@ -17,7 +17,7 @@ public static class StationIconResources
         "mapob_wharf", "mapob_equipmentdock", "mapob_factory", "mapob_tradestation",
         "mapob_defensestation", "mapob_shiptech", "mapob_hightech", "mapob_refined",
         "mapob_pharmaceutical", "mapob_food", "mapob_agricultural", "mapob_water", "mapob_energy",
-        "mapob_hive", "mapob_weaponplatform", "mapob_vault_closed"
+        "mapob_hive", "mapob_weaponplatform", "mapob_vault_closed", "mapob_anomaly"
     };
     private static readonly Dictionary<(string IconKey, Color Tint), BitmapSource> Cache = new();
 

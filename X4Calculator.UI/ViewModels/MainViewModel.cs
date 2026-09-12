@@ -180,6 +180,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         {
             if (ReferenceEquals(_shipComparison, value)) return;
             _shipComparison.SetStationTransportOptimizationSource(null);
+            _shipComparison.NativeTrip.Dispose();
             if (!SetProperty(ref _shipComparison, value)) return;
             if (_stationPlanning != null)
             {
@@ -408,6 +409,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         CancelTopMessageTimeout();
         GameDataSetup.PropertyChanged -= OnGameDataSetupPropertyChanged;
         GameDataSetup.Dispose();
+        ShipComparison.NativeTrip.Dispose();
         DetachStationCountBridge(_stationPlanning);
     }
 
@@ -431,9 +433,12 @@ public class MainViewModel : ViewModelBase, IDisposable
     private void OnStationCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
         UpdateHasAnyStations(StationPlanning);
 
-    private void UpdateHasAnyStations(StationPlanningViewModel viewModel) =>
+    private void UpdateHasAnyStations(StationPlanningViewModel viewModel)
+    {
         ShipComparison.SetHasAnyStations(
             viewModel.ImportedStations.Count > 0 || viewModel.PlannedStations.Count > 0);
+        ShipComparison.NativeTrip.SetStations(viewModel.ImportedStations.Select(item => item.Station));
+    }
 
     private void OnPlacementNavigationRequested(
         object? sender,

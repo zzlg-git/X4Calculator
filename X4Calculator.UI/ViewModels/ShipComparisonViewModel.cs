@@ -102,6 +102,7 @@ public class ShipComparisonViewModel : ViewModelBase
         _gameData = gameData;
         _transportShipConfigurations = transportShipConfigurations ?? new TransportShipConfigurationStore();
         _showError = showError;
+        NativeTrip = new OosTransportTripViewModel(gameData, this);
 
         RaceOptions = new ObservableCollection<string>();
         SizeOptions = new ObservableCollection<string>();
@@ -182,6 +183,8 @@ public class ShipComparisonViewModel : ViewModelBase
     /// <summary>
     /// 当前选中的种族筛选。
     /// </summary>
+    public OosTransportTripViewModel NativeTrip { get; }
+
     public string? SelectedRace
     {
         get => _selectedRace;

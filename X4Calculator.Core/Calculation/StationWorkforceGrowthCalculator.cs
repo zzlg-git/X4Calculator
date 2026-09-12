@@ -7,7 +7,8 @@ public enum StationWorkforceGrowthConstraint
 {
     Overcrowding,
     LimitedVacancies,
-    Layoff
+    Layoff,
+    NoVacancies
 }
 
 public sealed record StationWorkforceGrowthSummary(
@@ -78,7 +79,14 @@ public sealed class StationWorkforceGrowthCalculator
             activeConstraint = StationWorkforceGrowthConstraint.Layoff;
             activeConstraintPenalty = CalculateLayoffPenalty(-remaining, _parameters.BaseGrowth);
         }
-        else if (remaining > 0 && unconstrainedGrowthExact > remaining)
+        else if (remaining == 0)
+        {
+            growthPerCycle = 0;
+            growthCycles = 0;
+            activeConstraint = StationWorkforceGrowthConstraint.NoVacancies;
+            activeConstraintPenalty = 1;
+        }
+        else if (unconstrainedGrowthExact > remaining)
         {
             growthPerCycle = (int)remaining;
             growthCycles = 1;

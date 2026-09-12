@@ -8,7 +8,7 @@ public sealed record StationTransportFlowAllocation(
 
 /// <summary>
 /// 把空间站净产能分配到已启用运输边。计算完全忽略当前库存：有限负产能先作为硬需求满足，
-/// 剩余正产能再由终端站吸收；贸易站只中转已经从上游取得的同量货物。
+/// 剩余正产能再由终端站吸收；指定的采矿货物允许贸易站以无限供给满足工厂有限需求。
 /// </summary>
 public sealed class StationTransportFlowCalculator
 {
@@ -17,7 +17,8 @@ public sealed class StationTransportFlowCalculator
     public IReadOnlyList<StationTransportFlowAllocation> Calculate(
         IEnumerable<StationTransportStationSnapshot> stations,
         IEnumerable<StationTransportRoute> enabledRoutes,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlySet<string>? unlimitedTradeWareIds = null)
     {
         ArgumentNullException.ThrowIfNull(stations);
         ArgumentNullException.ThrowIfNull(enabledRoutes);
@@ -43,6 +44,7 @@ public sealed class StationTransportFlowCalculator
                 stationList,
                 stationsById,
                 wareRoutes.ToArray(),
+                unlimitedTradeWareIds?.Contains(wareRoutes.Key) == true,
                 cancellationToken);
             allocations.AddRange(context.Calculate());
         }
@@ -63,15 +65,18 @@ public sealed class StationTransportFlowCalculator
         private readonly Dictionary<string, double> _remainingFactorySupply;
         private readonly Dictionary<StationTransportRoute, double> _flowByRoute = new();
         private readonly CancellationToken _cancellationToken;
+        private readonly bool _unlimitedTradeSupply;
 
         public WareAllocationContext(
             string wareId,
             IReadOnlyList<StationTransportStationSnapshot> stations,
             IReadOnlyDictionary<string, StationTransportStationSnapshot> stationsById,
             IReadOnlyList<StationTransportRoute> routes,
+            bool unlimitedTradeSupply,
             CancellationToken cancellationToken)
         {
             _wareId = wareId;
+            _unlimitedTradeSupply = unlimitedTradeSupply;
             _stations = stations;
             _stationsById = stationsById;
             _incomingByTarget = routes
@@ -97,7 +102,9 @@ public sealed class StationTransportFlowCalculator
                          .OrderBy(station => station.StationId, StringComparer.OrdinalIgnoreCase))
             {
                 _cancellationToken.ThrowIfCancellationRequested();
-                var demand = Math.Min(-target.GetNetCapacity(_wareId), RemainingSupply);
+                var demand = _unlimitedTradeSupply
+                    ? -target.GetNetCapacity(_wareId)
+                    : Math.Min(-target.GetNetCapacity(_wareId), RemainingSupply);
                 if (demand <= FlowEpsilon) break;
                 AllocateToTarget(target.StationId, demand, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             }
@@ -226,7 +233,11 @@ public sealed class StationTransportFlowCalculator
             }
             else if (source.Duty == StationTransportStationDuty.Trade)
             {
-                allocated = AllocateToTarget(source.StationId, requested, visitedTargets);
+                // 采矿贸易站代表外部采集供给，只响应工厂需求，不追溯上游或向贸易站中转。
+                allocated = _unlimitedTradeSupply
+                    ? (_stationsById[route.TargetStationId].Duty == StationTransportStationDuty.Factory &&
+                       source.GetOfferDirections(_wareId).HasSellOffer ? requested : 0)
+                    : AllocateToTarget(source.StationId, requested, visitedTargets);
             }
             else
             {

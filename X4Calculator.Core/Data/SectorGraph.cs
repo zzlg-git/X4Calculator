@@ -214,7 +214,7 @@ public sealed class SectorGraph
         if (initial.Count == 0)
             return SectorRoute.Create(startSectorName, endSectorName, false, -1, Array.Empty<SectorInfo>(), Array.Empty<RouteEdge>());
 
-        // state = the last traversed edge.  This retains its arrival coordinate for the next segment cost.
+        // state 表示上一条经过的边，并保留其抵达坐标，用于计算下一段路程的代价。
         var dist = new Dictionary<RouteEdge, double>();
         var prev = new Dictionary<RouteEdge, RouteEdge?>();
         var pq = new PriorityQueue<RouteEdge, double>();

@@ -5,7 +5,8 @@ public enum SaveMapObjectKind
 {
     OwnerlessShip,
     DataVault,
-    ErlkingDataVault
+    ErlkingDataVault,
+    LeapOfFaithAnomaly
 }
 
 /// <summary>存档中的特殊星图对象轻量快照。</summary>
@@ -20,6 +21,9 @@ public sealed class SaveMapObject
     public string SectorId { get; init; } = string.Empty;
     public string ZoneId { get; init; } = string.Empty;
     public Vec3 SectorPosition { get; init; }
+
+    /// <summary>仅异常点使用；表示存档对象子树中存在 wormhole_active 特效。</summary>
+    public bool IsActive { get; init; }
 
     /// <summary>由星图布局根据 SectorPosition 投影出的显示坐标。</summary>
     public double DisplayX { get; set; }

@@ -463,6 +463,8 @@
                     <StackPanel>
 
                         <!-- ============ 航线（扇区）输入 ============ -->
+                        <TextBlock Text="航线与排序估算" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0 0 0 6"/>
                         <Border Background="{StaticResource BgMantleBrush}" CornerRadius="6" Padding="12" Margin="0 0 0 10">
                             <StackPanel>
                                 <!-- 标题行 + 重置 -->

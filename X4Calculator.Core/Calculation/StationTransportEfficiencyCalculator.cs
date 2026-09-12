@@ -41,6 +41,45 @@ public sealed class StationTransportEfficiencyResult
 }
 
 /// <summary>
+/// 以明确 flight anchor 和终端阶段组成的 OOS 单程结果。
+/// 该结果不加入旧 180° 旋转、dock 或 undock 拟合。
+/// </summary>
+public sealed class StationTransportOneWayPhaseResult
+{
+    public Vec3 SourceFlightAnchor { get; }
+    public Vec3 TargetFlightAnchor { get; }
+    public RouteDistanceResult Distance { get; }
+    public IReadOnlyList<StationTransportRoutePlanSegment> RoutePlan { get; }
+    public FlightStats FlightStats { get; }
+    public double RouteFlightSeconds { get; }
+    public OosTransportPhaseDuration SourceTerminalPhase { get; }
+    public OosTransportPhaseDuration TargetTerminalPhase { get; }
+    public OosTransportPhaseDuration TotalDuration { get; }
+
+    public StationTransportOneWayPhaseResult(
+        Vec3 sourceFlightAnchor,
+        Vec3 targetFlightAnchor,
+        RouteDistanceResult distance,
+        IReadOnlyList<StationTransportRoutePlanSegment> routePlan,
+        FlightStats flightStats,
+        double routeFlightSeconds,
+        OosTransportPhaseDuration sourceTerminalPhase,
+        OosTransportPhaseDuration targetTerminalPhase,
+        OosTransportPhaseDuration totalDuration)
+    {
+        SourceFlightAnchor = sourceFlightAnchor;
+        TargetFlightAnchor = targetFlightAnchor;
+        Distance = distance;
+        RoutePlan = routePlan;
+        FlightStats = flightStats;
+        RouteFlightSeconds = routeFlightSeconds;
+        SourceTerminalPhase = sourceTerminalPhase;
+        TargetTerminalPhase = targetTerminalPhase;
+        TotalDuration = totalDuration;
+    }
+}
+
+/// <summary>
 /// 把存档空间站坐标、扇区路线与完整舰船配置组合为运输耗时和效率。
 /// 分段和辅助耗时均先四舍五入到 0.1 秒再求和，与舰船比较页的现有口径一致。
 /// </summary>
@@ -79,6 +118,55 @@ public sealed class StationTransportEfficiencyCalculator
             : 0;
 
         return new StationTransportEfficiencyResult(distance, routePlan, stats, totalSeconds, efficiency);
+    }
+
+    /// <summary>
+    /// 计算两个明确 flight anchor 之间的现有分段飞行，并组合调用者已经计算完成的两端阶段。
+    /// sourceFlightAnchor 必须是源终端阶段的结束点，targetFlightAnchor 必须是目的终端阶段的起点；
+    /// 两个终端阶段不得再次包含 anchor 之间的几何移动。途中不取整，也不加入旧 180°/dock/undock 项。
+    /// </summary>
+    public StationTransportOneWayPhaseResult CalculateOneWayWithExplicitTerminalPhases(
+        SectorRoute route,
+        Vec3 sourceFlightAnchor,
+        Vec3 targetFlightAnchor,
+        StationTransportShipConfiguration configuration,
+        OosTransportPhaseDuration sourceTerminalPhase,
+        OosTransportPhaseDuration targetTerminalPhase)
+    {
+        ArgumentNullException.ThrowIfNull(route);
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(configuration.Ship);
+        ArgumentNullException.ThrowIfNull(configuration.Engine);
+        ArgumentNullException.ThrowIfNull(configuration.Thruster);
+        ArgumentNullException.ThrowIfNull(sourceTerminalPhase);
+        ArgumentNullException.ThrowIfNull(targetTerminalPhase);
+
+        var distance = _distanceCalculator.Calculate(route, sourceFlightAnchor, targetFlightAnchor);
+        var routePlan = BuildRoutePlan(route, distance);
+        var stats = FlightCalculator.Calculate(
+            configuration.Ship,
+            configuration.Engine,
+            configuration.Thruster,
+            configuration.PilotingStars);
+        var routeFlightSeconds = CalculateRouteFlightSecondsUnrounded(stats, routePlan);
+        var routeFlightPhase = OosTransportPhaseDuration.Exact(
+            routeFlightSeconds,
+            "existing route plan flight between explicit anchors");
+        var total = OosTransportTerminalPhaseCalculator.ComposeOneWay(
+            sourceTerminalPhase,
+            routeFlightPhase,
+            targetTerminalPhase);
+
+        return new(
+            sourceFlightAnchor,
+            targetFlightAnchor,
+            distance,
+            routePlan,
+            stats,
+            routeFlightSeconds,
+            sourceTerminalPhase,
+            targetTerminalPhase,
+            total);
     }
 
     /// <summary>
@@ -161,6 +249,33 @@ public sealed class StationTransportEfficiencyCalculator
                     FlightTimeCalculator.CalculateUndockTime(stats, ship.Length),
                     1,
                     MidpointRounding.AwayFromZero);
+            }
+        }
+
+        return total;
+    }
+
+    /// <summary>只求 route plan 的途中飞行，不取整、不添加旋转或进离港代理。</summary>
+    public static double CalculateRouteFlightSecondsUnrounded(
+        FlightStats stats,
+        IReadOnlyList<StationTransportRoutePlanSegment> routePlan)
+    {
+        ArgumentNullException.ThrowIfNull(stats);
+        ArgumentNullException.ThrowIfNull(routePlan);
+
+        double total = 0;
+        foreach (var segment in routePlan)
+        {
+            if (segment.DistanceKm > 0)
+            {
+                total += FlightTimeCalculator.CalculateSegmentTimeKm(
+                    stats,
+                    segment.DistanceKm,
+                    segment.EndAtGate);
+            }
+            else if (segment.IsGateCrossing)
+            {
+                total += FlightTimeCalculator.GateCrossingSeconds;
             }
         }
 

@@ -51,6 +51,12 @@ public class Station
     /// <summary>空间站相对扇区的坐标（区域偏移 + 站点在区域内的偏移）。</summary>
     public Vec3 SectorPosition { get; set; }
 
+    /// <summary>
+    /// 从存档实例与有效游戏数据解析的运输几何。游戏数据尚未加载或拓扑未补充时为 null；
+    /// 局部不支持项由拓扑自身的 UnsupportedReasons 表达，不能当作零距离或零尺寸。
+    /// </summary>
+    public StationTransportTopology? TransportTopology { get; set; }
+
     /// <summary>原版星图对象图标键，例如 mapob_playerhq。</summary>
     public string IconKey { get; set; } = string.Empty;
 
